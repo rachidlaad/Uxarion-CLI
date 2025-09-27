@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "4mypown-cli"
+version = "0.1.0"
+description = "Linux-first CLI and AI-driven pentesting orchestrator for 4myPown"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Proprietary"}
+authors = [{name = "4myPown", email = "noreply@example.com"}]
+dependencies = [
+  "typer>=0.12.3",
+  "rich>=13.7.1",
+  "httpx>=0.24.0",
+  "uvloop>=0.17.0",
+  "pydantic>=2.0.0",
+  "openai>=1.0.0",
+  "requests>=2.31.0",
+  "asyncio-mqtt>=0.11.0",
+]
+
+[project.urls]
+Homepage = "https://example.com"
+
+[project.scripts]
+pown = "pown_cli.main_cli:main"

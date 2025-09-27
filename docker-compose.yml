@@ -1,0 +1,68 @@
+# 4myPown AI Agent Infrastructure
+version: "3.9"
+
+services:
+  # Neo4j Graph Database for temporal knowledge
+  neo4j:
+    image: neo4j:5
+    container_name: pown-neo4j
+    ports:
+      - "7474:7474"   # HTTP Browser
+      - "7687:7687"   # Bolt protocol
+    environment:
+      - NEO4J_AUTH=neo4j/pown-password
+      - NEO4J_dbms_security_auth__enabled=true
+      - NEO4J_dbms_connector_bolt_listen__address=0.0.0.0:7687
+      - NEO4J_dbms_connector_http_listen__address=0.0.0.0:7474
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "pown-password", "RETURN 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for event streaming
+  redis:
+    image: redis:7-alpine
+    container_name: pown-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: redis-server --appendonly yes
+
+  # 4myPown API Server
+  pown-api:
+    build: .
+    container_name: pown-api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=pown-password
+      - ALLOWLIST=127.0.0.1,localhost,scanme.example.com
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # For Docker-in-Docker
+      - ./artifacts:/app/artifacts
+    depends_on:
+      - neo4j
+      - redis
+    restart: unless-stopped
+    profiles:
+      - api
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  redis_data:
