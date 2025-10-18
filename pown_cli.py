@@ -1474,6 +1474,7 @@ def print_banner() -> None:
     builder_line = "I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊"
     contacts_line = "X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad"
     mission_line = "4myPawn is an AI pentesting copilot, open-source for the pentesting community."
+    quick_actions_line = "Tip: press '/' in chat to update API keys via the quick actions menu."
 
     console = Console() if RICH_AVAILABLE else None
 
@@ -1484,6 +1485,7 @@ def print_banner() -> None:
         console.print(contacts_line, style="green")
         console.print()
         console.print(mission_line, style="cyan")
+        console.print(quick_actions_line, style="cyan")
         console.print()
     else:
         for line in banner_lines:
@@ -1492,6 +1494,7 @@ def print_banner() -> None:
         print(_color(contacts_line, getattr(Fore, "GREEN", "")))
         print()
         print(_color(mission_line, getattr(Fore, "CYAN", "")))
+        print(_color(quick_actions_line, getattr(Fore, "CYAN", "")))
         print()
 
 

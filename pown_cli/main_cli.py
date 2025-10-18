@@ -46,6 +46,7 @@ I would be happy for you to connect, collaborate, fix a bug or add a feature to 
 X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad
 
 4myPawn is an AI pentesting copilot, open-source for the pentesting community.
+Tip: press '/' in chat to update API keys via the quick actions menu.
 Bring your own API key and drive proven CLI tools (sqlmap, gobuster, nikto, nmap)
 through a safe, single-command loop.
 

@@ -160,12 +160,17 @@ class ChatUI:
             "4myPawn is an AI pentesting copilot, open-source for the pentesting community.",
             style="bright_cyan",
         )
+        quick_tip = Text(
+            "Tip: press '/' to open quick actions and update API keys.",
+            style="bright_cyan",
+        )
 
         self.console.print(banner)
         self.console.print(builder)
         self.console.print(contacts)
         self.console.print()
         self.console.print(mission)
+        self.console.print(quick_tip)
         self.console.print()
 
     def _get_user_input(self) -> str:
