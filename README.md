@@ -132,8 +132,6 @@ python3 pawn.py "Assess http://127.0.0.1:5000/api/diagnostics/ping for command i
 Flags mirror the options in `pown_cli.py`:
 - `--provider` (`openai` | `gemini`)
 - `--max-commands` safeguard
-- `--dry-run` to simulate command selection without execution
-- `--allow-tools` / `--deny-tools` for custom tool lists
 
 ## Practice Target: Suno Banking App
 
@@ -218,7 +216,3 @@ Stay safe and stay ethical.
 ## License
 
 4myPown CLI is licensed under the Apache License 2.0. See [LICENSE](./LICENSE).
-
-### Trademarks
-
-“4myPown”, the logo, and related names are trademarks of Laadraoui; trademark rights are not granted by the Apache License 2.0.
