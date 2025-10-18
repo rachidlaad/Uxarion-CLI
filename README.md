@@ -1,5 +1,7 @@
 # 4myPown CLI – AI Pentesting Copilot
 
+Official site: https://4mypawn.com/
+
 AI-assisted penetration testing for security researchers, red-teamers, and defenders. 4myPown CLI blends an autonomous command-loop agent with a rich terminal chat experience so you can plan, execute, and report findings faster on scoped targets.
 
 > **Authorized Testing Only**  
