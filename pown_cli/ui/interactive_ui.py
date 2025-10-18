@@ -5,7 +5,9 @@ Simplified Rich-based interface that works standalone
 import sys
 import os
 import subprocess
+from pathlib import Path
 from typing import Optional, List, Dict, Any
+from urllib.parse import urlparse
 
 try:
     from rich.console import Console
@@ -169,28 +171,30 @@ through a safe, single-command loop.
             self.console.print("[yellow]⚔️  Advanced tools enabled (SQLMap, Nmap, Gobuster, Nikto)[/]")
 
         # Build command to execute the original CLI
+        agent_script = Path(__file__).resolve().parents[2] / "pown_cli.py"
+        if not agent_script.exists():
+            raise FileNotFoundError(f"Agent entrypoint not found at {agent_script}")
+
         cmd = [
-            sys.executable, "-m", "pown_cli.pown_cli",
-            "--prompt", self.objective,
-            "--provider", self.provider,
+            sys.executable,
+            str(agent_script),
+            "--prompt",
+            self.objective,
+            "--provider",
+            self.provider,
         ]
 
         # Add target
         if self.target:
+            scope_value = self.target
             if self.target.startswith(("http://", "https://")):
-                from urllib.parse import urlparse
                 parsed = urlparse(self.target)
                 if parsed.hostname:
-                    cmd.extend(["--allow-domain", parsed.hostname])
-                else:
-                    cmd.extend(["--allow-domain", self.target])
-            elif "." in self.target and not self.target.replace(".", "").replace(":", "").isdigit():
-                cmd.extend(["--allow-domain", self.target])
-            else:
-                cmd.extend(["--allow-ip", self.target])
+                    scope_value = parsed.hostname
+            cmd.extend(["--scope", scope_value])
 
         if self.enable_advanced:
-            cmd.append("--enable-advanced-tools")
+            cmd.extend(["--allow-tools", "sqlmap,nmap,gobuster,nikto"])
 
         try:
             self.console.print("[dim]Executing AI agent...[/]\n")

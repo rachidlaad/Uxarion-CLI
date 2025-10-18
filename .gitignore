@@ -1,0 +1,28 @@
+# Virtual environments
+.venv/
+.venv_backup_*/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Build artifacts
+*.egg-info/
+
+# Runtime outputs and logs
+.pown_runs/
+run_result.json
+run.jsonl
+pawn_chat.log
+suno_run.log
+*.log
+
+# Local configuration / secrets
+.env
+.env.*
+
+# Temporary files
+/To
+cookies.txt
+headers.txt
+*_headers.txt

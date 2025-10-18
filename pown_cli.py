@@ -15,10 +15,41 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
-from urllib.parse import urlparse
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import requests
+
+try:
+    from rich.console import Console
+    RICH_AVAILABLE = True
+except ImportError:  # pragma: no cover - rich optional
+    Console = None  # type: ignore[assignment]
+    RICH_AVAILABLE = False
+
+try:
+    from colorama import Fore, Style, init as colorama_init
+
+    colorama_init()  # type: ignore[misc]
+except Exception:  # pragma: no cover - colorama optional
+    class _ForeFallback:
+        BLACK = RED = GREEN = YELLOW = BLUE = MAGENTA = CYAN = WHITE = ""
+
+    class _StyleFallback:
+        RESET_ALL = ""
+        BRIGHT = ""
+        DIM = ""
+
+    Fore = _ForeFallback()  # type: ignore[assignment]
+    Style = _StyleFallback()  # type: ignore[assignment]
+
+
+RESET = getattr(Style, "RESET_ALL", "")
+DIM = getattr(Style, "DIM", "")
+BRIGHT = getattr(Style, "BRIGHT", "")
+
+
+def _color(text: str, prefix: str) -> str:
+    return f"{prefix}{text}{RESET}" if prefix else text
 
 
 openai_client = None
@@ -35,17 +66,12 @@ IDLE_TIMEOUT_S = 180
 WALL_CLOCK_LIMIT_S = 20 * 60
 SCHEMA_VERSION = "1.0"
 
-DEFAULT_TOOL_ALLOW: Set[str] = {
-    "curl",
-    "nmap",
-    "nikto",
-    "gobuster",
-    "sqlmap",
-    "whatweb",
-    "ffuf",
-    "wafw00f",
-    "wget",
-}
+_ENV_DEFAULT_TOOLS = os.environ.get("POWN_ALLOW_TOOLS")
+DEFAULT_TOOL_ALLOW: Optional[Set[str]] = (
+    {tool.strip() for tool in _ENV_DEFAULT_TOOLS.split(",") if tool.strip()}
+    if _ENV_DEFAULT_TOOLS
+    else None
+)
 
 DANGEROUS_PATTERNS = [
     r"\brm\s+-rf\s+/(?:\s|$)",
@@ -90,10 +116,12 @@ def stream_command_execution(
     *,
     workdir: Optional[str] = None,
     use_stdbuf: bool = False,
+    emit_console: bool = True,
 ) -> Dict[str, Any]:
     """Run a shell command and stream output to stdout."""
-    print(f"\n💻 {command}")
-    print("\033[90m" + "─" * 80 + "\033[0m")
+    if emit_console:
+        print(f"\ncmd> {command}")
+        print("\033[90m" + "─" * 80 + "\033[0m")
 
     try:
         run_cmd = command
@@ -129,7 +157,8 @@ def stream_command_execution(
                 except Exception:
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                     termination_reason = "timeout_killed"
-                print(f"\033[91m⏰ Command timed out after {timeout}s\033[0m")
+                if emit_console:
+                    print(f"\033[91m⏰ Command timed out after {timeout}s\033[0m")
                 break
 
             line = proc.stdout.readline()
@@ -151,25 +180,29 @@ def stream_command_execution(
                     repeat_count = 0
                     last_line = clean
                     last_line_time = now
-                print(f"\033[90m{clean}\033[0m")
+                if emit_console:
+                    print(f"\033[90m{clean}\033[0m")
                 last_output = now
 
             if idle_timeout and (now - last_output) > idle_timeout:
                 try:
-                    print(f"\033[91m🔕 No output for {idle_timeout}s — sending SIGINT\033[0m")
+                    if emit_console:
+                        print(f"\033[91m🔕 No output for {idle_timeout}s — sending SIGINT\033[0m")
                     os.killpg(os.getpgid(proc.pid), signal.SIGINT)
                     proc.wait(timeout=8)
                     termination_reason = "idle"
                 except Exception:
-                    print("\033[91m💀 Escalating to SIGKILL\033[0m")
+                    if emit_console:
+                        print("\033[91m💀 Escalating to SIGKILL\033[0m")
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                     termination_reason = "idle_killed"
                 break
 
         returncode = proc.wait()
         duration = time.time() - start
-        print("\033[90m" + "─" * 80 + "\033[0m")
-        print(f"✅ Exit code: {returncode} | Duration: {duration:.1f}s\n")
+        if emit_console:
+            print("\033[90m" + "─" * 80 + "\033[0m")
+            print(f"✅ Exit code: {returncode} | Duration: {duration:.1f}s\n")
 
         return {
             "returncode": returncode,
@@ -178,7 +211,8 @@ def stream_command_execution(
             "termination_reason": termination_reason,
         }
     except Exception as exc:
-        print(f"\033[91m❌ Error: {exc}\033[0m")
+        if emit_console:
+            print(f"\033[91m❌ Error: {exc}\033[0m")
         return {
             "returncode": 1,
             "output": f"Execution failed: {exc}",
@@ -211,18 +245,32 @@ def in_cidrs(ip: ipaddress._BaseAddress, cidrs: Optional[List[ipaddress._BaseNet
 
 
 def parse_hosts_and_urls(s: str) -> tuple[Set[str], Set[str]]:
-    urls = set(
-        m.group(0)
-        for m in re.finditer(r"https?://[A-Za-z0-9\.\-]+(?::\d+)?(?:/[^\s]*)?", s)
-    )
-    hosts = set(
-        m.group(1)
-        for m in re.finditer(r"https?://([^/\s:]+)", s)
-    )
-    hosts.update(
-        m.group(0)
-        for m in re.finditer(r"\b(?:(?:\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F:]+|localhost)\b", s)
-    )
+    urls = {
+        match.group(0)
+        for match in re.finditer(r"https?://[A-Za-z0-9\.\-]+(?::\d+)?(?:/[^\s]*)?", s)
+    }
+
+    hosts: Set[str] = set()
+
+    for match in re.finditer(r"https?://([^/\s:]+)", s):
+        token = match.group(1).strip("[]'\"")
+        if token:
+            hosts.add(token)
+
+    for match in re.finditer(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", s):
+        token = match.group(0).strip("[]'\"")
+        if token:
+            hosts.add(token)
+
+    for match in re.finditer(r"\b[0-9a-fA-F]+:[0-9a-fA-F:]*[0-9a-fA-F]+\b", s):
+        token = match.group(0).strip("[]'\"")
+        if token:
+            hosts.add(token)
+
+    if "localhost" in s:
+        hosts.add("localhost")
+
+    hosts.discard("")
     return hosts, urls
 
 
@@ -251,7 +299,7 @@ def validate_freeform_command(
     tool = first_tool(statement)
     if tool in deny_tools:
         return False, f"tool explicitly denied: {tool}", {"risk": 0.9}
-    if tool and tool not in allow_tools:
+    if tool and allow_tools and tool not in allow_tools:
         return False, f"tool not allow-listed: {tool}", {"risk": 0.6}
 
     if tool and shutil.which(tool) is None:
@@ -374,122 +422,6 @@ def _suggest_timeout_for(cmd: str) -> int:
         "automated_injection": 1500,
         "generic": DEFAULT_TIMEOUT_S,
     }[category]
-
-
-def _extract_first_url(text: str) -> Optional[str]:
-    pattern = r"https?://[^\s<>\"'{}|\\^`\[\]]+"
-    match = re.search(pattern, text)
-    return match.group(0) if match else None
-
-
-def _parse_target(url: Optional[str]) -> Dict[str, Any]:
-    if not url:
-        return {"host": "localhost", "port": 8080, "scheme": "http", "path": "/"}
-    try:
-        parsed = urlparse(url)
-        host = parsed.hostname or "localhost"
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        return {
-            "host": host,
-            "port": port,
-            "scheme": parsed.scheme or "http",
-            "path": parsed.path or "/",
-        }
-    except Exception:
-        return {"host": "localhost", "port": 8080, "scheme": "http", "path": "/"}
-
-
-def _ensure_wordlist() -> str:
-    candidates = [
-        "/usr/share/wordlists/dirb/common.txt",
-        "/usr/share/wordlists/dirbuster/directory-list-lowercase-2.3-medium.txt",
-        "/tmp/dirb-common.txt",
-    ]
-    for candidate in candidates[:-1]:
-        if os.path.exists(candidate):
-            return candidate
-
-    fallback = candidates[-1]
-    entries = """admin
-login
-console
-dashboard
-api
-config
-backup
-robots.txt
-index.php
-wp-admin
-phpmyadmin
-manager
-panel
-test
-upload
-"""
-    try:
-        with open(fallback, "w", encoding="utf-8") as handle:
-            handle.write(entries.strip() + "\n")
-    except Exception:
-        pass
-    return fallback
-
-
-def _sanitize_command(cmd: str, user_prompt: str = "", *, emit_log: bool = True) -> tuple[str, bool]:
-    original_cmd = cmd
-    sanitized_cmd = cmd
-
-    try:
-        tokens = shlex.split(cmd)
-    except ValueError:
-        tokens = cmd.split()
-
-    if tokens and tokens[0].lower() == "nmap":
-        updated_tokens = tokens[:]
-        ports: List[str] = []
-        modified = False
-        for idx, token in enumerate(updated_tokens):
-            if token.startswith("http://") or token.startswith("https://"):
-                parsed = urlparse(token)
-                host = parsed.hostname or token
-                port = parsed.port or (443 if parsed.scheme == "https" else 80)
-                ports.append(str(port))
-                updated_tokens[idx] = host
-                modified = True
-        if modified and ports:
-            if not any(t.startswith("-p") for t in updated_tokens):
-                updated_tokens.extend(["-p", ports[0]])
-            sanitized_cmd = shlex.join(updated_tokens)
-
-    if "gobuster" in sanitized_cmd:
-        try:
-            gb_tokens = shlex.split(sanitized_cmd)
-        except ValueError:
-            gb_tokens = sanitized_cmd.split()
-        if gb_tokens:
-            has_wordlist = False
-            for i, token in enumerate(gb_tokens):
-                if token == "-w" and i + 1 < len(gb_tokens):
-                    has_wordlist = True
-                    path = gb_tokens[i + 1]
-                    if not os.path.exists(path):
-                        gb_tokens[i + 1] = _ensure_wordlist()
-                    break
-                if token.startswith("-w") and token != "-w":
-                    has_wordlist = True
-                    path = token[2:]
-                    if not os.path.exists(path):
-                        gb_tokens[i] = "-w" + _ensure_wordlist()
-                    break
-            if not has_wordlist:
-                wordlist = _ensure_wordlist()
-                insert_at = 2 if len(gb_tokens) > 2 else len(gb_tokens)
-                gb_tokens = gb_tokens[:insert_at] + ["-w", wordlist] + gb_tokens[insert_at:]
-            sanitized_cmd = shlex.join(gb_tokens)
-
-    changed = sanitized_cmd != original_cmd
-    if changed and emit_log:
-        print(f"🛠 Sanitized command: {original_cmd} -> {sanitized_cmd}")
-    return sanitized_cmd, changed
 
 
 # ----------------------------------------------------------------------------
@@ -623,12 +555,30 @@ def chat_text_gemini(system: str, payload: Dict[str, Any], model: str = GEMINI_M
     return candidates[0]["content"]["parts"][0]["text"]
 
 
-def chat_json(system: str, payload: Dict[str, Any], provider: str = DEFAULT_PROVIDER) -> Dict[str, Any]:
-    if provider == "openai":
-        return chat_json_openai(system, payload)
-    if provider == "gemini":
-        return chat_json_gemini(system, payload)
-    raise RuntimeError(f"Unknown provider {provider}")
+def chat_json(
+    system: str,
+    payload: Dict[str, Any],
+    provider: str = DEFAULT_PROVIDER,
+    *,
+    retries: int = 10,
+    backoff_seconds: float = 1.0,
+) -> Dict[str, Any]:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, retries + 1):
+        try:
+            if provider == "openai":
+                return chat_json_openai(system, payload)
+            if provider == "gemini":
+                return chat_json_gemini(system, payload)
+            raise RuntimeError(f"Unknown provider {provider}")
+        except Exception as exc:  # noqa: PERF203
+            last_error = exc
+            if attempt == retries:
+                break
+            time.sleep(backoff_seconds)
+    raise RuntimeError(
+        f"AI decision request failed after {retries} retries; connection appears unstable."
+    ) from last_error
 
 
 def chat_text(system: str, payload: Dict[str, Any], provider: str = DEFAULT_PROVIDER) -> str:
@@ -663,53 +613,6 @@ def align_intent_paragraph(user_prompt: str, provider: str) -> Dict[str, Any]:
         raise RuntimeError(
             "Intent alignment failed; ensure internet connectivity and a valid provider configuration."
         ) from exc
-
-
-FALLBACK_STEPS = [
-    {
-        "phase": "recon",
-        "full_command": "curl -I -sSL {url}",
-        "analysis": "Collect HTTP headers to understand surface",
-        "timeout_seconds": 60,
-    },
-    {
-        "phase": "enum",
-        "full_command": "gobuster dir -u {url}",
-        "analysis": "Enumerate common directories to expand attack surface",
-        "timeout_seconds": 600,
-    },
-    {
-        "phase": "vuln_test",
-        "full_command": "nikto -h {url}",
-        "analysis": "Scan for known web vulnerabilities",
-        "timeout_seconds": 300,
-    },
-    {
-        "phase": "vuln_test",
-        "full_command": "sqlmap -u \"{url}\" --batch --forms --risk=2 --level=2",
-        "analysis": "Probe for SQL injection in common entry points",
-        "timeout_seconds": 1500,
-    },
-]
-
-
-def _fallback_step_plan(step_index: int, target_profile: Dict[str, Any]) -> Dict[str, Any]:
-    host = target_profile.get("host", "localhost")
-    port = target_profile.get("port", 80)
-    scheme = target_profile.get("scheme", "http")
-    url = f"{scheme}://{host}:{port}"
-    plan = FALLBACK_STEPS[min(step_index, len(FALLBACK_STEPS) - 1)].copy()
-    command = plan["full_command"].format(url=url)
-    plan.update(
-        {
-            "decision_id": f"fallback-step-{step_index}",
-            "full_command": command,
-            "expected_outcomes": ["Deterministic fallback"],
-            "safety": {"intrusiveness": "low", "justification": "deterministic fallback"},
-            "finish_if": "",  # never auto-finish
-        }
-    )
-    return plan
 
 
 def summarize_for_report(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -880,31 +783,29 @@ def command_signature(cmd: str) -> str:
 # Agent implementation
 # ----------------------------------------------------------------------------
 
-DECISION_PROMPT = """You are a penetration testing copilot.
-Return ONLY valid JSON, no markdown:
+DECISION_PROMPT = """You are an autonomous penetration tester.
+Reply ONLY with a JSON object matching:
 {{
   "stop": false,
-  "reason": "why this command or why stopping",
-  "command": "complete, non-interactive shell command"
+  "reason": "<why this step>",
+  "command": "<single non-interactive shell command>"
 }}
 
-User_intent:
-{user_intent}
+Context — mission and evidence:
+• Objective: {user_intent}
+• Target hints: {target_hints}
+• Recent activity (newest first): {history_excerpt}
 
-Target_hints (verbatim, from the user or prior confirmed targets):
-{target_hints}
+Engagement doctrine:
+1. Start with lightweight reconnaissance (e.g., curl/httpie/banner grabs) before launching intrusive scans.
+2. Progress through phases: recon → enumerate surface → probe for vulns → verify/exploit → report. Reference prior evidence before escalating.
+3. Never repeat the same command signature unless parameters meaningfully change.
+4. One shell command only; no control operators (; && ||), no subshells (`...` or $(...)). At most one pipe to grep/awk/sed/cut/head/tail/tee.
+5. Prefer read-only techniques unless evidence justifies deeper testing. Note justification in "reason".
+6. Tools must operate on in-scope hosts/URLs derived from the context above.
+7. If you intend to stop, respond with {{"stop": true, "reason": "<summary>"}} and omit "command".
 
-Recent_activity (most recent first, terse):
-{history_excerpt}
-
-Rules:
-- Operate only on hosts/URLs that appear in User_intent or Target_hints or Recent_activity.
-- Exactly ONE shell command. No control operators (; && ||), no subshells (`...` or $(...)).
-- At most one pipe; allowed sinks only: grep/awk/sed/cut/head/tail/tee.
-- Prefer read-only, non-destructive actions.
-- If you would stop and report, return {{"stop": true, "reason": "..."}} with empty "command" or omit it.
-Return JSON only.
-"""
+Return valid JSON only."""
 
 REPORT_PROMPT = """Create a brief, plain-text penetration test summary with findings, notable evidence, and next steps.
 Tone: professional, actionable, 3-5 sentences."""
@@ -917,52 +818,65 @@ class Agent:
         self.memory = Memory()
         self.tool_cache: Dict[str, Dict[str, Any]] = {}
 
+    def _push_event(
+        self,
+        callback: Optional[Callable[[Dict[str, Any]], None]],
+        payload: Dict[str, Any],
+    ) -> None:
+        if callback is None:
+            return
+        try:
+            callback(payload)
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
-    def _resolve_timeout(
-        self, sanitized_command: str, timeout_hint: Optional[int]
-    ) -> tuple[Optional[int], str]:
+    def _resolve_timeout(self, command: str, timeout_hint: Optional[int]) -> tuple[Optional[int], str]:
         if self.policy.no_command_timeouts:
             return None, "⏱ Per-command timeout: disabled (idle & wall-clock still apply)."
         hint = _clamp_timeout(timeout_hint) if timeout_hint is not None else None
-        floor = _suggest_timeout_for(sanitized_command)
+        floor = _suggest_timeout_for(command)
         effective = _clamp_timeout(max(floor, hint or 0))
         return effective, f"⏱ Timeout for this command: {effective}s"
 
     def _execute_command(
         self,
-        sanitized_command: str,
-        original_command: str,
+        command: str,
         analysis: str,
         *,
         effective_timeout: Optional[int],
         workdir: str,
         use_stdbuf: bool,
+        emit_console: bool,
     ) -> Dict[str, Any]:
         idle_timeout = self.policy.idle_timeout_s or None
 
         if self.policy.dry_run:
+            if emit_console:
+                print(f"\ncmd> {command}")
             return {
-                "command": sanitized_command,
-                "original_command": original_command,
+                "command": command,
+                "original_command": command,
                 "purpose": analysis,
                 "returncode": 0,
-                "output": f"[DRY-RUN] Would execute: {sanitized_command}",
+                "output": f"[DRY-RUN] Would execute: {command}",
                 "duration": 0.0,
                 "timeout_used": effective_timeout,
                 "termination_reason": "dry-run",
             }
 
         result = stream_command_execution(
-            sanitized_command,
+            command,
             timeout=effective_timeout,
             idle_timeout=idle_timeout,
             workdir=workdir,
             use_stdbuf=use_stdbuf,
+            emit_console=emit_console,
         )
         result.update(
             {
-                "command": sanitized_command,
-                "original_command": original_command,
+                "command": command,
+                "original_command": command,
                 "purpose": analysis,
                 "timeout_used": effective_timeout,
             }
@@ -1045,26 +959,40 @@ class Agent:
         exit_on_first_finding: bool = False,
         report_out_path: Optional[str] = None,
         validate: bool = True,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
+        run_id = uuid.uuid4().hex
+        self.run_id = run_id
         alignment = align_intent_paragraph(user_prompt, self.provider)
         intent_paragraph = alignment.get("intent_paragraph") or user_prompt.strip()
-        print(f"\n🎯 Intent: {intent_paragraph}\n")
+        emit_console = event_callback is None
+        if emit_console:
+            print(f"\n🎯 Intent: {intent_paragraph}\n")
+        self._push_event(
+            event_callback,
+            {
+                "type": "intent",
+                "run_id": run_id,
+                "intent": intent_paragraph,
+                "assumptions": alignment.get("assumptions", []),
+                "derived_targets": alignment.get("derived_targets", []),
+            },
+        )
 
-        target_url = alignment.get("derived_targets", [None])[0] or _extract_first_url(user_prompt)
-        target_profile = _parse_target(target_url)
+        target_hints_list = alignment.get("derived_targets", [])
 
         start_time = time.time()
         step = 0
         hard_cap = max_commands if max_commands is not None else parse_max_commands(user_prompt)
         executed = 0
         stop_reason = "completed"
-
-        run_id = uuid.uuid4().hex
-        self.run_id = run_id
-        sandbox_root = os.path.abspath("/tmp/pown")
-        os.makedirs(sandbox_root, exist_ok=True)
-        run_dir = os.path.abspath(os.path.join(sandbox_root, run_id))
+        artifacts_root = os.environ.get("POWN_ARTIFACT_DIR")
+        if artifacts_root:
+            run_dir = os.path.abspath(os.path.join(artifacts_root, run_id))
+        else:
+            run_dir = os.path.abspath(os.path.join(os.getcwd(), ".pown_runs", run_id))
         os.makedirs(run_dir, exist_ok=True)
+        execution_cwd = os.getcwd()
 
         MAX_PLANNER_RETRIES = 3
 
@@ -1074,41 +1002,43 @@ class Agent:
             scope_set = set()
         scope_cidrs_list = scope_cidrs or []
 
-        allowed_tools = set(DEFAULT_TOOL_ALLOW)
+        allowed_tools: Optional[Set[str]] = set(DEFAULT_TOOL_ALLOW) if DEFAULT_TOOL_ALLOW else None
         if allow_tools:
-            allowed_tools |= {tool.strip() for tool in allow_tools if tool.strip()}
+            extras = {tool.strip() for tool in allow_tools if tool.strip()}
+            allowed_tools = (allowed_tools or set()) | extras
 
         denied_tools = {tool.strip() for tool in deny_tools or set() if tool.strip()}
         validate_commands = validate
 
         has_stdbuf = shutil.which("stdbuf") is not None
 
-        attempted_raw: Set[str] = set()
-        attempted_sanitized: Set[str] = set()
+        attempted_commands: Set[str] = set()
         planner_retries = 0
         rejected_count = 0
         duplicate_count = 0
         user_intent_text = user_prompt.strip()
+        target_hint_text = "\n".join(str(t) for t in target_hints_list) if target_hints_list else "(none)"
 
         while True:
             if time.time() - start_time > WALL_CLOCK_LIMIT_S:
-                print("⏳ Wall clock limit reached, wrapping up.")
+                if emit_console:
+                    print("⏳ Wall clock limit reached, wrapping up.")
                 stop_reason = f"wall-clock limit ({WALL_CLOCK_LIMIT_S}s) reached"
                 break
 
             step += 1
 
-            target_hints = user_intent_text
-
             try:
-                decision = self._request_decision_freeform(user_intent_text, target_hints)
+                decision = self._request_decision_freeform(user_intent_text, target_hint_text)
             except Exception as exc:
-                print(f"error: decision request failed ({exc})")
+                if emit_console:
+                    print(f"error: decision request failed ({exc})")
                 stop_reason = "planner_failure"
                 break
 
             if "error" in decision:
-                print(f"error: planner response contained error ({decision['error']})")
+                if emit_console:
+                    print(f"error: planner response contained error ({decision['error']})")
                 stop_reason = "planner_error"
                 break
 
@@ -1116,14 +1046,17 @@ class Agent:
             if not schema_ok:
                 planner_retries += 1
                 if planner_retries > MAX_PLANNER_RETRIES:
-                    print("error: planner retries exhausted")
+                    if emit_console:
+                        print("error: planner retries exhausted")
                     stop_reason = "planner_retry_exhausted"
                     break
                 if planner_retries > 1:
-                    print(f"error: invalid planner response ({schema_reason})")
+                    if emit_console:
+                        print(f"error: invalid planner response ({schema_reason})")
                     stop_reason = "planner_invalid_json"
                     break
-                print("error: invalid planner response; retrying")
+                if emit_console:
+                    print("error: invalid planner response; retrying")
                 continue
 
             if bool(decision.get("stop")):
@@ -1135,10 +1068,12 @@ class Agent:
             timeout_hint = decision.get("timeout_hint")
 
             if not command:
-                print("error: planner returned empty command; retrying")
+                if emit_console:
+                    print("error: planner returned empty command; retrying")
                 planner_retries += 1
                 if planner_retries > MAX_PLANNER_RETRIES:
-                    print("error: planner retries exhausted")
+                    if emit_console:
+                        print("error: planner retries exhausted")
                     stop_reason = "planner_retry_exhausted"
                     break
                 if planner_retries > 1:
@@ -1146,34 +1081,34 @@ class Agent:
                     break
                 continue
 
-            if command in attempted_raw:
+            if command in attempted_commands:
                 duplicate_count += 1
                 planner_retries += 1
-                print("thinking: trying alternative (duplicate)")
+                if emit_console:
+                    print("thinking: trying alternative (duplicate)")
                 if planner_retries > MAX_PLANNER_RETRIES:
-                    print("error: planner retries exhausted")
+                    if emit_console:
+                        print("error: planner retries exhausted")
                     stop_reason = "planner_retry_exhausted"
                     break
                 continue
 
-            sanitized_preview, sanitized_changed = _sanitize_command(
-                command, user_prompt=user_prompt, emit_log=False
+            self._push_event(
+                event_callback,
+                {
+                    "type": "decision",
+                    "run_id": run_id,
+                    "step": step,
+                    "reason": reason_text,
+                    "command": command,
+                    "decision": decision,
+                },
             )
-
-            if sanitized_preview in attempted_sanitized:
-                duplicate_count += 1
-                planner_retries += 1
-                print("thinking: trying alternative (duplicate)")
-                if planner_retries > MAX_PLANNER_RETRIES:
-                    print("error: planner retries exhausted")
-                    stop_reason = "planner_retry_exhausted"
-                    break
-                continue
 
             validator_record = {"ok": True, "reason": "validation disabled", "risk": 0.0}
             if validate_commands:
                 ok, why, meta = validate_freeform_command(
-                    sanitized_preview,
+                    command,
                     scope_hosts=scope_set,
                     allow_tools=allowed_tools,
                     deny_tools=denied_tools,
@@ -1182,19 +1117,14 @@ class Agent:
                 if not ok:
                     rejected_count += 1
                     planner_retries += 1
-                    attempted_raw.add(command)
-                    attempted_sanitized.add(sanitized_preview)
+                    attempted_commands.add(command)
                     rejection_entry = {
                         "step": step,
                         "phase": decision.get("phase", "free_form"),
                         "analysis": reason_text,
-                        "decision": {
-                            "command": command,
-                            "reason": reason_text,
-                            "stop": False,
-                        },
+                        "decision": {"command": command, "reason": reason_text, "stop": False},
                         "observation": {
-                            "command": sanitized_preview,
+                            "command": command,
                             "original_command": command,
                             "returncode": None,
                             "output": "",
@@ -1204,46 +1134,62 @@ class Agent:
                         "source": "free_form",
                     }
                     self.memory.history.append(rejection_entry)
-                    print(f"rejected: {why}")
+                    self._push_event(
+                        event_callback,
+                        {
+                            "type": "rejected",
+                            "run_id": run_id,
+                            "step": step,
+                            "command": command,
+                            "reason": why,
+                            "validator": validator_record,
+                        },
+                    )
+                    if emit_console:
+                        print(f"rejected: {why}")
                     reason_lower = why.lower()
                     if "dangerous pattern" in reason_lower:
-                        print("thinking: trying alternative (unsafe shell)")
+                        if emit_console:
+                            print("thinking: trying alternative (unsafe shell)")
                     else:
-                        print("thinking: trying alternative (invalid command)")
+                        if emit_console:
+                            print("thinking: trying alternative (invalid command)")
                     if validator_record.get("missing_tool"):
-                        print(f"error: tool not found ({validator_record['missing_tool']})")
+                        if emit_console:
+                            print(f"error: tool not found ({validator_record['missing_tool']})")
                     if planner_retries > MAX_PLANNER_RETRIES:
-                        print("error: planner retries exhausted")
+                        if emit_console:
+                            print("error: planner retries exhausted")
                         stop_reason = "planner_retry_exhausted"
                         break
                     continue
             else:
                 validator_record["reason"] = "validation disabled"
 
-            validator_record.setdefault("tool", first_tool(sanitized_preview))
+            tool_name = validator_record.get("tool") or first_tool(command)
+            if tool_name:
+                validator_record["tool"] = tool_name
 
-            effective_timeout, timeout_msg = self._resolve_timeout(
-                sanitized_preview, timeout_hint
-            )
+            effective_timeout, timeout_msg = self._resolve_timeout(command, timeout_hint)
 
             thought_line = reason_text.splitlines()[0] if reason_text else "continuing"
             if len(thought_line) > 160:
                 thought_line = thought_line[:157] + "…"
-            print(f"thinking: {thought_line}")
-            print(f"→ {sanitized_preview}")
+            if emit_console:
+                print(f"thinking: {thought_line}")
+                print(f"→ {command}")
 
             observation = self._execute_command(
-                sanitized_preview,
                 command,
                 reason_text,
                 effective_timeout=effective_timeout,
-                workdir=run_dir,
+                workdir=execution_cwd,
                 use_stdbuf=has_stdbuf,
+                emit_console=emit_console,
             )
             executed += 1
             planner_retries = 0
-            attempted_raw.add(command)
-            attempted_sanitized.add(sanitized_preview)
+            attempted_commands.add(command)
 
             observation.setdefault("termination_reason", "completed")
             observation["phase"] = decision.get("phase", "free_form")
@@ -1253,19 +1199,22 @@ class Agent:
             observation["step_index"] = step
             observation["run_id"] = run_id
             observation["source"] = "free_form"
-            observation["tool"] = validator_record.get("tool") or first_tool(sanitized_preview)
+            observation["tool"] = validator_record.get("tool") or first_tool(command)
             observation["validator"] = validator_record
 
             is_live_obs = observation.get("termination_reason") not in {"dry-run", "error"}
             if is_live_obs:
+                cmd_text = observation.get("command", "") or ""
+                scheme_hint = "https" if "https://" in cmd_text else "http"
                 header_issues = detect_header_vulns(
-                    observation.get("command", ""),
+                    cmd_text,
                     observation.get("output", ""),
-                    scheme=target_profile.get("scheme", "http"),
+                    scheme=scheme_hint,
                 )
                 if header_issues:
                     issue_text = ", ".join(header_issues)
-                    print(f"🚨 HEADER VULNERABILITY DETECTED! Missing Security Headers: {issue_text}")
+                    if emit_console:
+                        print(f" HEADER VULNERABILITY DETECTED! Missing Security Headers: {issue_text}")
                     finding = f"Missing security headers ({issue_text}) identified via {observation.get('command')}"
                     if finding not in self.memory.discovered_vulns:
                         self.memory.discovered_vulns.append(finding)
@@ -1285,6 +1234,15 @@ class Agent:
                 "source": "free_form",
             }
             self.memory.history.append(entry)
+            self._push_event(
+                event_callback,
+                {
+                    "type": "observation",
+                    "run_id": run_id,
+                    "step": step,
+                    "observation": observation,
+                },
+            )
 
             if self.policy.jsonl_path:
                 try:
@@ -1296,20 +1254,22 @@ class Agent:
                             "execution_mode": "dry-run"
                             if observation.get("termination_reason") == "dry-run"
                             else "live",
-                            "target": f"{target_profile['scheme']}://{target_profile['host']}:{target_profile['port']}",
+                            "targets": target_hints_list,
                             "run_id": run_id,
                         }
                     )
                     with open(self.policy.jsonl_path, "a", encoding="utf-8") as jf:
                         jf.write(json.dumps(jsonl_entry, ensure_ascii=False) + "\n")
                 except Exception as exc:
-                    print(f"⚠️ JSONL write failed: {exc}")
+                    if emit_console:
+                        print(f"⚠️ JSONL write failed: {exc}")
 
             if should_finish(decision, observation):
                 stop_reason = decision.get("reason") or "planner_stop"
                 break
             if hard_cap is not None and executed >= hard_cap:
-                print(f"🏁 Command budget reached (executed {executed}/{hard_cap}).")
+                if emit_console:
+                    print(f"🏁 Command budget reached (executed {executed}/{hard_cap}).")
                 stop_reason = f"command budget used ({executed}/{hard_cap})"
                 break
             if step >= 50:
@@ -1323,6 +1283,15 @@ class Agent:
         execution_mode = "live" if live_seen else "dry-run"
 
         report = self._generate_report(intent_paragraph, execution_mode)
+        self._push_event(
+            event_callback,
+            {
+                "type": "report",
+                "run_id": run_id,
+                "execution_mode": execution_mode,
+                "report": report,
+            },
+        )
         report_path = os.path.join(run_dir, "report.md")
         saved_paths: List[str] = []
         try:
@@ -1330,11 +1299,11 @@ class Agent:
                 handle.write(report + "\n")
             saved_paths.append(os.path.abspath(report_path))
         except Exception as exc:
-            print(f"error: failed to write report ({exc})")
+            if emit_console:
+                print(f"error: failed to write report ({exc})")
 
         run_result_path_session = os.path.join(run_dir, "run_result.json")
 
-        target_url_str = f"{target_profile['scheme']}://{target_profile['host']}:{target_profile['port']}"
         result = {
             "history": self.memory.history,
             "discovered_vulnerabilities": self.memory.discovered_vulns,
@@ -1343,7 +1312,7 @@ class Agent:
             "schema_version": SCHEMA_VERSION,
             "provider": self.provider,
             "execution_mode": execution_mode,
-            "target": target_url_str,
+            "targets": target_hints_list,
             "verbosity": self.policy.verbosity,
             "run_id": run_id,
             "report_path": os.path.abspath(report_path),
@@ -1355,18 +1324,29 @@ class Agent:
                 json.dump(result, handle, indent=2)
             saved_result_path = os.path.abspath("run_result.json")
         except Exception as exc:
-            print(f"error: failed to write run_result.json ({exc})")
+            if emit_console:
+                print(f"error: failed to write run_result.json ({exc})")
 
         try:
             with open(run_result_path_session, "w", encoding="utf-8") as handle:
                 json.dump(result, handle, indent=2)
         except Exception as exc:
-            print(f"error: failed to write session run_result ({exc})")
+            if emit_console:
+                print(f"error: failed to write session run_result ({exc})")
 
         if not saved_paths and saved_result_path:
             saved_paths.append(saved_result_path)
-        if saved_paths:
+        if saved_paths and emit_console:
             print(f"💾 saved: {saved_paths[0]}")
+        self._push_event(
+            event_callback,
+            {
+                "type": "completed",
+                "run_id": run_id,
+                "stop_reason": stop_reason,
+                "result": result,
+            },
+        )
         return result
 
 
@@ -1375,22 +1355,139 @@ class Agent:
 # ----------------------------------------------------------------------------
 
 
+class CLIEventPrinter:
+    def __init__(self) -> None:
+        self.console = Console() if RICH_AVAILABLE else None
+        self.sep = "─" * 80
+
+    def _console_print(self, text: str) -> None:
+        if self.console:
+            self.console.print(text)
+        else:
+            print(text)
+
+    def __call__(self, event: Dict[str, Any]) -> None:
+        etype = event.get("type")
+        if etype == "status":
+            message = event.get("message", "")
+            if message:
+                self._console_print(f"[dim]{message}[/dim]" if self.console else _color(message, DIM))
+        elif etype == "intent":
+            self._console_print(f"[magenta]{self.sep}[/magenta]" if self.console else self.sep)
+            intent = event.get("intent", "")
+            if intent:
+                if self.console:
+                    self.console.print(f"[cyan]🎯 Intent:[/] {intent}")
+                else:
+                    print(_color("🎯 Intent:", Fore.CYAN) + f" {intent}")
+            assumptions = event.get("assumptions") or []
+            if assumptions:
+                if self.console:
+                    self.console.print("[dim]Assumptions:[/dim]")
+                    for item in assumptions:
+                        self.console.print(f"  [dim]- {item}[/dim]")
+                else:
+                    print(_color("Assumptions:", DIM))
+                    for item in assumptions:
+                        print(_color(f"  - {item}", DIM))
+            derived = event.get("derived_targets") or []
+            if derived:
+                if self.console:
+                    self.console.print(f"[cyan]Targets:[/] {', '.join(derived)}")
+                else:
+                    print(_color("Targets:", Fore.CYAN) + f" {', '.join(derived)}")
+        elif etype == "decision":
+            reason = (event.get("reason") or "").splitlines()[0]
+            if reason:
+                if self.console:
+                    self.console.print(f"[dim]thinking: {reason}[/dim]")
+                else:
+                    print(_color(f"thinking: {reason}", DIM))
+            command = event.get("command")
+            if command:
+                if self.console:
+                    self.console.print(f"[yellow]→ {command}[/yellow]")
+                else:
+                    print(_color(f"→ {command}", Fore.YELLOW))
+        elif etype == "observation":
+            obs = event.get("observation", {})
+            command = obs.get("command", "")
+            rc = obs.get("returncode")
+            duration = obs.get("duration")
+            self._console_print(f"[magenta]{self.sep}[/magenta]" if self.console else self.sep)
+            summary = f"rc={rc}" if rc is not None else ""
+            if duration not in (None, ""):
+                summary = f"{summary} | {duration}s" if summary else f"{duration}s"
+            info = f" ({summary})" if summary else ""
+            if self.console:
+                self.console.print(f"[green]✓ {command}{info}[/green]")
+            else:
+                print(_color(f"✓ {command}{info}", Fore.GREEN))
+            output = obs.get("output") or ""
+            first_line = next((line for line in output.splitlines() if line.strip()), "")
+            if first_line:
+                if self.console:
+                    self.console.print(f"[blue]{first_line[:160]}[/blue]")
+                else:
+                    print(_color(first_line[:160], Fore.BLUE))
+            evidence = obs.get("evidence") or []
+            if evidence:
+                if self.console:
+                    self.console.print(f"[magenta]evidence:[/] {', '.join(evidence)}")
+                else:
+                    print(_color("evidence:", Fore.MAGENTA) + f" {', '.join(evidence)}")
+        elif etype == "report":
+            report = event.get("report", "")
+            if report:
+                self._console_print(f"[magenta]{self.sep}[/magenta]" if self.console else self.sep)
+                if self.console:
+                    self.console.print("[green]🧾 Report:[/green]")
+                    self.console.print(report)
+                else:
+                    print(_color("🧾 Report:", Fore.GREEN))
+                    print(report)
+        elif etype == "completed":
+            reason = event.get("stop_reason") or event.get("result", {}).get("stop_reason", "")
+            if reason:
+                if self.console:
+                    self.console.print(f"[cyan]Mission complete:[/] {reason}")
+                else:
+                    print(_color(f"Mission complete: {reason}", Fore.CYAN))
+        elif etype == "error":
+            if self.console:
+                self.console.print(f"[red]error:[/] {event.get('error', 'unknown error')}")
+            else:
+                print(_color(f"error: {event.get('error', 'unknown error')}", Fore.RED))
+
+
 def print_banner() -> None:
-    banner = (
-        "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n"
-        "                           █ █   █▀▄▀█   █ █   █▀▄   █▀█   █ █   █▀█\n"
-        "                           ▀▀▀   █ ▀ █   ▀█▀   █▀    █▀█   ▀█▀   █ █\n"
-        "                             █   █   █    █    █     █ █    █    █ █\n"
-        "\n"
-        "I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊\n"
-        "X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad\n"
-        "\n"
-        "4myPawn is an AI pentesting copilot, open-source for the pentesting community.\n"
-        "Bring your own API key and drive proven CLI tools (sqlmap, gobuster, nikto, nmap)\n"
-        "through a safe, single-command loop.\n"
-        "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
-    )
-    print(banner)
+    banner_lines = [
+        "                            █ █   █▀▄▀█   █ █   █▀▄   █▀█   █ █   █▀█",
+        "                            ▀▀▀   █ ▀ █   ▀█▀   █▀    █▀█   ▀█▀   █ █",
+        "                              █   █   █    █    █     █ █    █    █ █",
+    ]
+    builder_line = "I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊"
+    contacts_line = "X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad"
+    mission_line = "4myPawn is an AI pentesting copilot, open-source for the pentesting community."
+
+    console = Console() if RICH_AVAILABLE else None
+
+    if console:
+        for line in banner_lines:
+            console.print(line, style="cyan")
+        console.print(builder_line, style="magenta")
+        console.print(contacts_line, style="green")
+        console.print()
+        console.print(mission_line, style="cyan")
+        console.print()
+    else:
+        for line in banner_lines:
+            print(_color(line, getattr(Fore, "CYAN", "")))
+        print(_color(builder_line, getattr(Fore, "MAGENTA", "")))
+        print(_color(contacts_line, getattr(Fore, "GREEN", "")))
+        print()
+        print(_color(mission_line, getattr(Fore, "CYAN", "")))
+        print()
 
 
 def main() -> int:
@@ -1481,10 +1578,9 @@ Examples:
 
     if policy.show_banner:
         print_banner()
-        print("(hint) Use --no-banner to hide this header.")
-    print(f"🎯 Objective: {args.prompt}")
+    print(_color("🎯 Objective:", Fore.CYAN) + f" {args.prompt}")
     if policy.dry_run:
-        print("🧪 DRY-RUN MODE – commands will not execute")
+        print(_color("🧪 DRY-RUN MODE – commands will not execute", DIM))
 
     agent = Agent(policy=policy, provider=args.provider)
     scope_hosts = (
@@ -1517,6 +1613,7 @@ Examples:
             scope_cidrs = cidr_values
 
     report_out_path = args.out
+    event_printer = CLIEventPrinter()
     agent.run(
         args.prompt,
         max_commands=args.max_commands,
@@ -1527,6 +1624,7 @@ Examples:
         exit_on_first_finding=args.exit_on_first_finding,
         report_out_path=report_out_path,
         validate=not args.no_validate,
+        event_callback=event_printer,
     )
     return 0
 

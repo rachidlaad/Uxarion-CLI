@@ -7,7 +7,7 @@ import json
 import asyncio
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -17,9 +17,14 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
 
-from ..bus.events import EventPublisher
-from ..agents.ai_recon import AIReconAgent
-from ..memory.neo4j_graph import Neo4jGraphMemory
+try:
+    from ..bus.events import EventPublisher
+    from ..agents.ai_recon import AIReconAgent
+    from ..memory.neo4j_graph import Neo4jGraphMemory
+except ImportError:  # pragma: no cover - optional components
+    EventPublisher = None
+    AIReconAgent = None
+    Neo4jGraphMemory = None
 
 
 router = APIRouter()
@@ -103,6 +108,11 @@ async def _mock_event_stream() -> AsyncGenerator[str, None]:
 @router.post("/start")
 async def start_recon(request: StartReconRequest, background_tasks: BackgroundTasks):
     """Start a reconnaissance session"""
+    if EventPublisher is None or AIReconAgent is None or Neo4jGraphMemory is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Reconnaissance components are not installed.",
+        )
     session_id = request.session_id or f"recon_{request.target.replace('/', '_').replace(':', '_')}"
 
     # Queue the recon task in background
@@ -118,6 +128,8 @@ async def start_recon(request: StartReconRequest, background_tasks: BackgroundTa
 
 async def _run_recon_session(request: StartReconRequest, session_id: str):
     """Run reconnaissance session in background"""
+    if EventPublisher is None or AIReconAgent is None or Neo4jGraphMemory is None:
+        return
     try:
         # Initialize components
         publisher = EventPublisher()
@@ -148,6 +160,8 @@ async def _run_recon_session(request: StartReconRequest, session_id: str):
 @router.get("/sessions/{session_id}/status")
 async def get_session_status(session_id: str):
     """Get current session status from graph"""
+    if Neo4jGraphMemory is None:
+        raise HTTPException(status_code=503, detail="Graph memory backend unavailable.")
     try:
         graph = Neo4jGraphMemory()
         host_id = session_id.split('_')[1] if '_' in session_id else session_id
@@ -169,6 +183,8 @@ async def get_session_status(session_id: str):
 @router.get("/graph/summary")
 async def get_graph_summary():
     """Get overall attack surface summary"""
+    if Neo4jGraphMemory is None:
+        raise HTTPException(status_code=503, detail="Graph memory backend unavailable.")
     try:
         graph = Neo4jGraphMemory()
         summary = graph.get_attack_surface_summary()

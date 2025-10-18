@@ -1,0 +1,15 @@
+Account Summary - Confidential
+
+Customer: Alice (Account CHK-001)
+Month: September 2025
+
+Transactions:
+  2025-09-02  PAYROLL CREDIT               +6,200.00
+  2025-09-05  RENT PAYMENT                 -1,850.00
+  2025-09-12  ONLINE PURCHASE              -320.45
+  2025-09-18  UTILITIES                    -210.12
+  2025-09-24  INTERNAL TRANSFER            -5,000.00
+
+Running Balance: 15,432.77
+
+Note: This file lives inside the Suno documents folder and should not be exposed outside authenticated, authorized workflows. Path traversal in /files/download can leak it.

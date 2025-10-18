@@ -7,7 +7,10 @@ from __future__ import annotations
 import asyncio
 import sys
 import os
+import subprocess
+from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 try:
     import uvloop  # type: ignore
@@ -88,52 +91,38 @@ def pentest(
     if target:
         console.print(f"[cyan]# Target:[/] {target}")
 
-    # Import and use the original functionality as fallback
+    agent_script = Path(__file__).resolve().parents[2] / "pown_cli.py"
+    if not agent_script.exists():
+        console.print(f"[red]Agent entrypoint not found at {agent_script}[/]")
+        raise typer.Exit(code=1)
+
+    cli_args = [
+        sys.executable,
+        str(agent_script),
+        "--prompt",
+        objective,
+        "--max-commands",
+        str(max_steps),
+    ]
+
+    if target:
+        scope_value = target
+        if target.startswith(("http://", "https://")):
+            parsed = urlparse(target)
+            if parsed.hostname:
+                scope_value = parsed.hostname
+        cli_args.extend(["--scope", scope_value])
+    if enable_advanced:
+        cli_args.extend(["--allow-tools", "sqlmap,nmap,gobuster,nikto"])
+    if dry_run:
+        cli_args.append("--dry-run")
+    if provider:
+        cli_args.extend(["--provider", provider])
+
     try:
-        # This would import the original monolithic functionality
-        from ..pown_cli import main as original_main
-        import sys
-
-        # Simulate command line args for the original function
-        original_args = [
-            "--prompt", objective,
-            "--max-steps", str(max_steps),
-        ]
-
-        if target:
-            # Try to determine if it's a domain or IP
-            if target.startswith(("http://", "https://")):
-                from urllib.parse import urlparse
-                parsed = urlparse(target)
-                original_args.extend(["--allow-domain", parsed.hostname or target])
-            elif "." in target and not target.replace(".", "").isdigit():
-                original_args.extend(["--allow-domain", target])
-            else:
-                original_args.extend(["--allow-ip", target])
-
-        if enable_advanced:
-            original_args.append("--enable-advanced-tools")
-
-        if dry_run:
-            original_args.append("--dry-run")
-
-        if provider:
-            original_args.extend(["--provider", provider])
-
-        # Save original sys.argv and replace
-        original_argv = sys.argv
-        sys.argv = ["pown"] + original_args
-
-        try:
-            original_main()
-        finally:
-            sys.argv = original_argv
-
-    except ImportError:
-        console.print("[red]Error: Could not import original functionality[/]")
-        console.print("[yellow]Please use the 'chat' command for interactive mode[/]")
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/]")
+        subprocess.run(cli_args, check=True)
+    except subprocess.CalledProcessError as exc:
+        console.print(f"[red]Agent exited with code {exc.returncode}[/]")
 
 
 def main() -> None:
