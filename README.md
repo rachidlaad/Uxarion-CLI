@@ -9,7 +9,7 @@ AI-assisted penetration testing for security researchers, red-teamers, and defen
 
 ## Why 4myPown?
 
-- **Autonomous AI Operator** – The single-shot agent (`pawn.py` / `pown pentest`) plans reconnaissance, validates commands, captures evidence, and writes a concise report.
+- **Autonomous AI Operator** – The single-shot agent (`pawn.py`) plans reconnaissance, validates commands, captures evidence, and writes a concise report.
 - **Terminal Chat UI** – Rich-powered chat interface with streaming updates, context memory, a persistent “Running…” indicator, and quick actions for updating API keys on the fly.
 - **Built-In Training Target** – The intentionally vulnerable **Suno** banking demo (Flask) lets you practice JWT tampering, SSRF, command injection, and file disclosure scenarios offline.
 - **Safety Guardrails** – Command validator enforces allow-lists, scope restrictions, duplicate avoidance, and blocks destructive patterns.
@@ -25,7 +25,6 @@ AI-assisted penetration testing for security researchers, red-teamers, and defen
 4. [Running the Agents](#running-the-agents)
    - [Terminal Chat UI](#terminal-chat-ui)
    - [Autonomous Single-Shot Agent](#autonomous-single-shot-agent)
-   - [Typer CLI Commands](#typer-cli-commands)
 5. [Practice Target: Suno Banking App](#practice-target-suno-banking-app)
 6. [Outputs & Artifacts](#outputs--artifacts)
 7. [Project Structure](#project-structure)
@@ -73,7 +72,7 @@ pip install -e .
 You can supply keys in two ways:
 
 1. **Interactive Quick Actions**  
-   Launch the terminal chat UI (`python3 pawn.py` or `pown chat`) and press `/` → `1` or `/` → `2` to enter OpenAI or Gemini keys. The UI updates your environment and `.env`.
+   Launch the terminal chat UI (`python3 pawn.py`) and press `/` → `1` or `/` → `2` to enter OpenAI or Gemini keys. The UI updates your environment and `.env`.
 
 2. **Manual `.env` update**  
    Create `.env` at the project root (or edit the existing file) and add:
@@ -93,7 +92,7 @@ If no provider key is present, the agent will stop with a clear “API key not c
 
 ```bash
 # interactive chat UI with spinner, command history, and quick actions
-python3 pawn.py        # or `pown chat` if the Typer CLI is installed
+python3 pawn.py
 ```
 
 **Workflow highlights**
@@ -116,24 +115,6 @@ Flags mirror the options in `pown_cli.py`:
 - `--max-commands` safeguard
 - `--dry-run` to simulate command selection without execution
 - `--allow-tools` / `--deny-tools` for custom tool lists
-
-### Typer CLI Commands
-
-`pown` exposes three primary commands:
-
-```bash
-pown chat                     # Terminal chat interface (default if no args)
-pown menu                     # Menu-based interactive UI
-pown pentest "Recon target" \
-  --target https://example.com \
-  --provider gemini \
-  --max-steps 10 \
-  --enable-advanced
-```
-
-`--enable-advanced` allows tools like `sqlmap`, `nmap`, `gobuster`, `nikto` once they’re available in PATH.
-
----
 
 ## Practice Target: Suno Banking App
 
@@ -168,7 +149,7 @@ See [`README_SUNO.md`](README_SUNO.md) for walkthrough goals. Point the agent at
 ```
 ├── pawn.py                     # Unified entry point (auto adds --prompt)
 ├── pown_cli.py                 # Single-shot autonomous agent & CLI
-├── pown_cli/                   # Package (Typer app, UI, orchestrator shim)
+├── pown_cli/                   # Package (chat UI, orchestrator shim, helpers)
 │   ├── core/orchestrator.py    # Bridges CLI orchestrator to single-shot agent
 │   ├── ui/chat_ui.py          # Rich chat interface with spinner + quick actions
 │   ├── ui/interactive_ui.py    # Menu-driven UI
