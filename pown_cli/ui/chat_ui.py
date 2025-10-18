@@ -164,12 +164,17 @@ class ChatUI:
             "Tip: press '/' to open quick actions and update API keys.",
             style="bright_cyan",
         )
+        website = Text(
+            "Official site: https://4mypawn.com/",
+            style="bright_cyan",
+        )
 
         self.console.print(banner)
         self.console.print(builder)
         self.console.print(contacts)
         self.console.print()
         self.console.print(mission)
+        self.console.print(website)
         self.console.print(quick_tip)
         self.console.print()
 
