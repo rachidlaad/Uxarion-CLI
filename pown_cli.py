@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """4myPown – AI-driven pentesting agent with single execution gateway."""
 from __future__ import annotations
 

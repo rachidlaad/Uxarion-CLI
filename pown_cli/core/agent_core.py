@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """
 4myPown Autonomous Pentesting Agent
 Modern architecture inspired by SWE-agent and successful coding agents

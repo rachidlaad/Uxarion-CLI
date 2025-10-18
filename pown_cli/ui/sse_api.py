@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """
 Server-Sent Events API for real-time agent streaming
 Streams events from Redis to web clients

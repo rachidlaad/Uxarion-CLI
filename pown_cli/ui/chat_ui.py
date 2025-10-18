@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """
 Interactive terminal chat UI for 4myPown
 Enhanced with code execution, conversation context, and streaming responses.

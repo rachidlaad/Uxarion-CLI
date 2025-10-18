@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # 4myPown Launcher Script
 # Activates virtual environment and launches Claude Code-style interface
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """
 Terminal UI for 4myPown AI Agent
 Rich-based interface with live event streaming

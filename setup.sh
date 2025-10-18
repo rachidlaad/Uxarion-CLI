@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 
 # 4myPown CLI Setup Script
 # This script helps configure the environment and install dependencies

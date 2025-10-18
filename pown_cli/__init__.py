@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """
 4myPown CLI - AI-driven penetration testing toolkit
 """

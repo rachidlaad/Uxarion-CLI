@@ -214,3 +214,11 @@ See [`README_SUNO.md`](README_SUNO.md) for walkthrough goals. Point the agent at
 - If 4myPown CLI helps your security workflow, star the repo so more researchers and defenders can discover this AI pentesting copilot.
 
 Stay safe and stay ethical.
+
+## License
+
+4myPown CLI is licensed under the Apache License 2.0. See [LICENSE](./LICENSE).
+
+### Trademarks
+
+“4myPown”, the logo, and related names are trademarks of Laadraoui; trademark rights are not granted by the Apache License 2.0.

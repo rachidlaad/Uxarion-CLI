@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """
 4myPown - Interactive CLI Entry Point
 Modern Rich-based terminal interface with chat-style interaction

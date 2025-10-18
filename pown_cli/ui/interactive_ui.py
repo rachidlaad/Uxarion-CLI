@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """
 Interactive Terminal UI for 4myPown
 Simplified Rich-based interface that works standalone
