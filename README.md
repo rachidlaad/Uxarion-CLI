@@ -204,7 +204,7 @@ See [`README_SUNO.md`](README_SUNO.md) for walkthrough goals. Point the agent at
 
 ## Community & Support
 
-- Builder: Rachid Laad  
+- Builder: Rachid Laadraoui  
   X/Twitter: [@Rachid_LLLL](https://x.com/Rachid_LLLL)  
   Email: [rachidshade@gmail.com](mailto:rachidshade@gmail.com)  
   GitHub: [github.com/rachidlaad](https://github.com/rachidlaad)
