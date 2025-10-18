@@ -1,0 +1,9 @@
+typer>=0.12.3
+rich>=13.7.1
+httpx>=0.24.0
+uvloop>=0.17.0; sys_platform != "win32"
+pydantic>=2.0.0
+openai>=1.0.0
+requests>=2.31.0
+asyncio-mqtt>=0.11.0
+colorama>=0.4.6

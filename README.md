@@ -52,18 +52,21 @@ AI-assisted penetration testing for security researchers, red-teamers, and defen
 git clone https://github.com/rachidlaad/4myPawn-CLI.git
 cd 4myPawn-CLI
 
-# 1) create a virtual environment
+# 1) create and activate a virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 2) install the CLI package
+# 2) install runtime dependencies
+pip install -r requirements.txt
+
+# (optional) install in editable mode for development
 pip install -e .
 
-# 3) install optional provider / UI extras (press Y when prompted)
-./setup.sh        # interactive helper
+# (optional) guided setup with provider extras
+./setup.sh
 ```
 
-> The tree includes a `.gitignore` so virtualenvs, logs, and `.env` stay local—please keep your real API keys out of source control.
+> The tree includes a `.gitignore` so virtualenvs, logs, and `.env` stay local—keep your real API keys out of source control.
 
 ---
 
@@ -155,6 +158,7 @@ See [`README_SUNO.md`](README_SUNO.md) for walkthrough goals. Point the agent at
 │   ├── ui/interactive_ui.py    # Menu-driven UI
 │   ├── ui/sse_api.py           # SSE API stubs (requires optional components)
 │   └── tools/                  # Safety / sandbox helpers (minimal in this fork)
+├── requirements.txt            # Dependency list for quick installs
 ├── suno_app/                   # Vulnerable banking demo target
 ├── README.md                   # (you are here)
 ├── README_SUNO.md              # Suno target details
