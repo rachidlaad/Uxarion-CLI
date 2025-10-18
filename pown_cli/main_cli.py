@@ -24,7 +24,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from .ui.interactive_ui import InteractiveUI
-from .ui.claude_style_ui import ClaudeStyleUI
+from .ui.chat_ui import ChatUI
 
 app = typer.Typer(add_completion=False, no_args_is_help=False)
 console = Console()
@@ -59,9 +59,8 @@ you> """
 
 @app.command()
 def chat() -> None:
-    """Start interactive chat mode with Claude Code-style UI"""
-    # Initialize and run the Claude-style UI
-    ui = ClaudeStyleUI()
+    """Start interactive chat mode"""
+    ui = ChatUI()
     ui.run()
 
 
@@ -129,9 +128,9 @@ def main() -> None:
     """Main entry point"""
     import sys
 
-    # If no arguments provided, start Claude-style chat mode
+    # If no arguments provided, start chat mode
     if len(sys.argv) == 1:
-        ui = ClaudeStyleUI()
+        ui = ChatUI()
         ui.run()
     else:
         app()

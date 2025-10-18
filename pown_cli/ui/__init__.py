@@ -3,9 +3,9 @@ UI components for 4myPown CLI
 """
 
 from .interactive_ui import InteractiveUI
-from .claude_style_ui import ClaudeStyleUI
+from .chat_ui import ChatUI
 
-__all__ = ["InteractiveUI", "ClaudeStyleUI"]
+__all__ = ["InteractiveUI", "ChatUI"]
 
 try:
     from .terminal_ui import TerminalUI

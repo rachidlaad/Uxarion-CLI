@@ -1,6 +1,6 @@
 """
-Claude Code-style Interactive Terminal UI for 4myPown
-Enhanced with code execution, conversation context, and streaming responses
+Interactive terminal chat UI for 4myPown
+Enhanced with code execution, conversation context, and streaming responses.
 """
 import asyncio
 import sys
@@ -81,8 +81,8 @@ class ConversationContext:
         return self.messages[-max_messages:] if self.messages else []
 
 
-class ClaudeStyleUI:
-    """Claude Code-style interactive terminal interface"""
+class ChatUI:
+    """Interactive terminal chat interface"""
 
     def __init__(self):
         if not RICH_AVAILABLE:
@@ -164,7 +164,7 @@ class ClaudeStyleUI:
         self.console.print()
 
     def _get_user_input(self) -> str:
-        """Get user input with Claude Code-style prompt"""
+        """Get user input with the chat-style prompt"""
         try:
             return self.console.input(f"\n{self.prompt_template}").strip()
         except EOFError:

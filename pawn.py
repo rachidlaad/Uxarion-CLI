@@ -24,7 +24,7 @@ def _load_agent_module():
 _AGENT_MODULE = _load_agent_module()
 run_agent_main = getattr(_AGENT_MODULE, "main")
 
-from pown_cli.ui.claude_style_ui import ClaudeStyleUI
+from pown_cli.ui.chat_ui import ChatUI
 
 
 def _run_agent(args: List[str]) -> int:
@@ -41,7 +41,7 @@ def _run_agent(args: List[str]) -> int:
 
 def main() -> int:
     if len(sys.argv) == 1:
-        ui = ClaudeStyleUI()
+        ui = ChatUI()
         ui.run()
         return 0
     return _run_agent(sys.argv[1:])
