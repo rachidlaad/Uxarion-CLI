@@ -135,9 +135,10 @@ class ChatUI:
     def _show_welcome(self):
         """Render the primary header with branding and mission info."""
         banner = Text(
-            "                            █ █   █▀▄▀█   █ █   █▀▄   █▀█   █ █   █▀█\n"
-            "                            ▀▀▀   █ ▀ █   ▀█▀   █▀    █▀█   ▀█▀   █ █\n"
-            "                              █   █   █    █    █     █ █    █    █ █\n",
+            "  _  _  _   ___   ____  _       _ \n"
+            " | || || | | _ \\ / _ \\| |_ ___| |\n"
+            " | __ || |_|  _/| (_) | __/ _ \\ |\n"
+            " |_||_| \\___|_|   \\___/ \\__\\___/_|\n",
             style="bold cyan",
         )
 
