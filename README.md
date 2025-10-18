@@ -64,9 +64,23 @@ pip install -e .
 
 # (optional) guided setup with provider extras
 ./setup.sh
+
+# (optional) SSE/web UI dependencies
+pip install fastapi aioredis
+
+# (optional) enhanced terminal input
+pip install prompt_toolkit
+
+# (optional) vulnerable Suno target
+pip install -r requirements-suno.txt
 ```
 
 > The tree includes a `.gitignore` so virtualenvs, logs, and `.env` stay local—keep your real API keys out of source control.
+
+Optional extras:
+- `fastapi` + `aioredis` enable the experimental SSE API in `pown_cli/ui/sse_api.py`.
+- `prompt_toolkit` adds enhanced line-editing inside the chat UI.
+- `requirements-suno.txt` installs the vulnerable Suno target for local practice.
 
 ---
 
