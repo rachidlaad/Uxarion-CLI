@@ -7,6 +7,8 @@ AI-assisted penetration testing for security researchers, red-teamers, and defen
 > **Authorized Testing Only**  
 > Use this toolkit exclusively on systems you own or have written permission to assess. The maintainers assume no responsibility for misuse.
 
+![4myPown CLI chat interface](./image.png)
+
 ---
 
 ## Why 4myPown?
