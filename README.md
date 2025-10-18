@@ -2,7 +2,7 @@
 
 AI-assisted penetration testing for security researchers, red-teamers, and defenders. 4myPown CLI blends an autonomous command-loop agent with a rich terminal chat experience so you can plan, execute, and report findings faster on scoped targets.
 
-> ⚠️ **Authorized Testing Only**  
+> **Authorized Testing Only**  
 > Use this toolkit exclusively on systems you own or have written permission to assess. The maintainers assume no responsibility for misuse.
 
 ---
@@ -73,7 +73,7 @@ pip install -e .
 You can supply keys in two ways:
 
 1. **Interactive Quick Actions**  
-   Launch the terminal chat UI (`pown chat`) and press `/` → `1` / `2` to enter OpenAI or Gemini keys. The UI updates your environment and `.env`.
+   Launch the terminal chat UI (`python3 pawn.py` or `pown chat`) and press `/` → `1` or `/` → `2` to enter OpenAI or Gemini keys. The UI updates your environment and `.env`.
 
 2. **Manual `.env` update**  
    Create `.env` at the project root (or edit the existing file) and add:
@@ -93,7 +93,7 @@ If no provider key is present, the agent will stop with a clear “API key not c
 
 ```bash
 # interactive chat UI with spinner, command history, and quick actions
-pown chat
+python3 pawn.py        # or `pown chat` if the Typer CLI is installed
 ```
 
 **Workflow highlights**
@@ -105,10 +105,10 @@ pown chat
 ### Autonomous Single-Shot Agent
 
 ```bash
-# lightweight entry point (auto wraps bare objective into --prompt)
-python pawn.py "Assess http://127.0.0.1:5000/api/diagnostics/ping" \
+# single-shot agent (auto wraps bare objective into --prompt)
+python3 pawn.py "Assess http://127.0.0.1:5000/api/diagnostics/ping for command injection and other exposures" \
   --provider openai \
-  --max-commands 8
+  --max-commands 1
 ```
 
 Flags mirror the options in `pown_cli.py`:
@@ -170,7 +170,7 @@ See [`README_SUNO.md`](README_SUNO.md) for walkthrough goals. Point the agent at
 ├── pown_cli.py                 # Single-shot autonomous agent & CLI
 ├── pown_cli/                   # Package (Typer app, UI, orchestrator shim)
 │   ├── core/orchestrator.py    # Bridges CLI orchestrator to single-shot agent
-│   ├── ui/claude_style_ui.py   # Rich chat interface with spinner + quick actions
+│   ├── ui/chat_ui.py          # Rich chat interface with spinner + quick actions
 │   ├── ui/interactive_ui.py    # Menu-driven UI
 │   ├── ui/sse_api.py           # SSE API stubs (requires optional components)
 │   └── tools/                  # Safety / sandbox helpers (minimal in this fork)
@@ -205,11 +205,11 @@ See [`README_SUNO.md`](README_SUNO.md) for walkthrough goals. Point the agent at
 
 ## Community & Support
 
-- 🛠 **Builder**: Rachid Laad  
+- Builder: Rachid Laad  
   X/Twitter: [@Rachid_LLLL](https://x.com/Rachid_LLLL)  
   Email: [rachidshade@gmail.com](mailto:rachidshade@gmail.com)  
   GitHub: [github.com/rachidlaad](https://github.com/rachidlaad)
-- 💬 Have feedback or want to collaborate? Open an issue, share ideas, or reach out directly. Bug fixes, new features, and target scenarios are all welcome.
-- ⭐ If 4myPown CLI helps your security workflow, star the repo so more researchers and defenders can discover this AI pentesting copilot.
+- Have feedback or want to collaborate? Open an issue, share ideas, or reach out directly. Bug fixes, new features, and target scenarios are all welcome.
+- If 4myPown CLI helps your security workflow, star the repo so more researchers and defenders can discover this AI pentesting copilot.
 
-Stay safe, stay ethical, and happy hacking! 🛡️
+Stay safe and stay ethical.
