@@ -1462,10 +1462,11 @@ class CLIEventPrinter:
 
 def print_banner() -> None:
     banner_lines = [
-        "  _  _  _   ___   ____  _       _ ",
-        " | || || | | _ \\ / _ \\| |_ ___| |",
-        " | __ || |_|  _/| (_) | __/ _ \\ |",
-        " |_||_| \\___|_|   \\___/ \\__\\___/_|",
+        "44444  MM   MM  YY   YY  PPPPPP  AA   AA  WW     WW  NN   NN",
+        "   44  MMM MMM  YY   YY  PP   PP AAA AAA  WW  W  WW  NNN  NN",
+        "  44   MM M MM   YYYYY   PPPPPP AAAAAAA  WW W W WW  NN N NN",
+        " 44    MM   MM    YYY    PP     AA   AA  WW  W  WW  NN  NNN",
+        "444444 MM   MM    YYY    PP     AA   AA  WW     WW  NN   NN",
     ]
     builder_line = "I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊"
     contacts_line = "X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad"
