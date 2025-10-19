@@ -1,6 +1,6 @@
 # Suno Vulnerable Test Application
 
-Suno is a deliberately vulnerable banking-style web service designed to stress-test the 4myPown CLI agent. It exposes multiple non-SQL injection attack surfaces so you can validate end‑to‑end reconnaissance, exploitation, and reporting workflows.
+Suno is a deliberately vulnerable banking-style web service designed to stress-test the Zevionx CLI agent. It exposes multiple non-SQL injection attack surfaces so you can validate end‑to‑end reconnaissance, exploitation, and reporting workflows.
 
 ## Features & Intentional Vulnerabilities
 
@@ -36,7 +36,7 @@ The application listens on `http://127.0.0.1:5000` by default. Set `SUNO_PORT` t
 
 The `/dashboard` endpoint reveals the role derived from the (tamperable) JWT.
 
-## Pitting 4myPown Against Suno
+## Pitting Zevionx Against Suno
 
 Point the CLI at `http://127.0.0.1:5000` and ask it to assess the login flow, diagnostics API, or file service. A successful run should:
 

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Interactive terminal chat UI for 4myPown
+Interactive terminal chat UI for Zevionx
 Enhanced with code execution, conversation context, and streaming responses.
 """
 import asyncio
@@ -11,6 +11,7 @@ import json
 import time
 from datetime import datetime
 from importlib import metadata
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
@@ -36,8 +37,11 @@ PROMPT_TOOLKIT_AVAILABLE = False
 from ..core.orchestrator import init_orchestrator
 
 try:  # Stay aligned with single-shot default provider
-    from .. import pown_cli as legacy_agent  # type: ignore
-
+    loader = SourceFileLoader(
+        "zevionx_cli_module",
+        str(Path(__file__).resolve().parents[2] / "zevionx_cli.py"),
+    )
+    legacy_agent = loader.load_module()  # type: ignore[deprecated-attr]
     CHAT_DEFAULT_PROVIDER = getattr(legacy_agent, "DEFAULT_PROVIDER", "openai")
 except Exception:  # pragma: no cover - defensive
     CHAT_DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "openai")
@@ -105,11 +109,12 @@ class ChatUI:
     def _resolve_build_metadata(self) -> tuple[str, str]:
         """Return package version and build identifier."""
         try:
-            version = metadata.version("4mypown-cli")
+            version = metadata.version("zevionx-cli")
         except metadata.PackageNotFoundError:
             version = "dev"
         build = (
-            os.environ.get("POWN_BUILD_ID")
+            os.environ.get("ZEVIONX_BUILD_ID")
+            or os.environ.get("POWN_BUILD_ID")
             or os.environ.get("GIT_COMMIT")
             or os.environ.get("BUILD_ID")
             or "local"
@@ -136,14 +141,14 @@ class ChatUI:
     def _show_welcome(self):
         """Render the primary header with branding and mission info."""
         banner = Text(
-            "██████╗   ██╗   ██╗███╗   ██╗\n"
-            "██╔══██╗  ██║   ██║████╗  ██║\n"
-            "██████╔╝  ██║   ██║██╔██╗ ██║\n"
-            "██╔══██╗  ██║   ██║██║╚██╗██║\n"
-            "██║  ██║  ╚██████╔╝██║ ╚████║\n"
-            "╚═╝  ╚═╝   ╚═════╝ ╚═╝  ╚═══╝\n"
+            "███████╗███████╗██╗   ██╗██╗ ██████╗ ███╗   ██╗██╗  ██╗\n"
+            "██╔════╝██╔════╝██║   ██║██║██╔════╝ ████╗  ██║██║ ██╔╝\n"
+            "███████╗█████╗  ██║   ██║██║██║  ███╗██╔██╗ ██║█████╔╝ \n"
+            "╚════██║██╔══╝  ╚██╗ ██╔╝██║██║   ██║██║╚██╗██║██╔═██╗ \n"
+            "███████║███████╗ ╚████╔╝ ██║╚██████╔╝██║ ╚████║██║  ██╗\n"
+            "╚══════╝╚══════╝  ╚═══╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝\n"
             "\n"
-            "                 4myPown CLI\n",
+            "                     Zevionx CLI\n",
             style="bold cyan",
         )
 
@@ -158,7 +163,7 @@ class ChatUI:
         )
 
         mission = Text(
-            "4myPawn is an AI pentesting copilot, open-source for the pentesting community.",
+            "Zevionx is an AI pentesting copilot, open-source for the pentesting community.",
             style="bright_cyan",
         )
         quick_tip = Text(
@@ -166,7 +171,7 @@ class ChatUI:
             style="bright_cyan",
         )
         website = Text(
-            "Official site: https://4mypawn.com/",
+            "Official site: https://zevionx.com/",
             style="bright_cyan",
         )
 
@@ -552,7 +557,7 @@ class ChatUI:
 ⚡ **Commands executed:** {len(self.context.command_history)}
 ⏱️ **Session duration:** {str(session_duration).split('.')[0]}
 
-[dim]Thank you for using 4myPown! Stay secure! 🛡️[/]
+[dim]Thank you for using Zevionx! Stay secure! 🛡️[/]
 """
         self.console.print(Panel(goodbye_text, title="Goodbye", border_style="green"))
 
@@ -600,7 +605,11 @@ class ChatUI:
         os.environ[env_var] = value
         self._update_env_file(env_var, value)
         try:
-            import pown_cli.pown_cli as agent_module
+            module_loader = SourceFileLoader(
+                "zevionx_cli_module",
+                str(Path(__file__).resolve().parents[2] / "zevionx_cli.py"),
+            )
+            agent_module = module_loader.load_module()  # type: ignore[deprecated-attr]
 
             if env_var == "OPENAI_API_KEY":
                 agent_module.openai_client = None

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-UI components for 4myPown CLI
+UI components for Zevionx CLI
 """
 
 from .interactive_ui import InteractiveUI

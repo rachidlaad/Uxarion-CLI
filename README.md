@@ -1,23 +1,23 @@
-# 4myPown CLI – AI Pentesting Copilot
+# Zevionx CLI – AI Pentesting Copilot
 
-Official site: https://4mypawn.com/
+Official site: https://zevionx.com/
 
-AI-assisted penetration testing for security researchers, red-teamers, and defenders. 4myPown CLI blends an autonomous command-loop agent with a rich terminal chat experience so you can plan, execute, and report findings faster on scoped targets.
+AI-assisted penetration testing for security researchers, red-teamers, and defenders. Zevionx CLI blends an autonomous command-loop agent with a rich terminal chat experience so you can plan, execute, and report findings faster on scoped targets.
 
 > **Authorized Testing Only**  
 > Use this toolkit exclusively on systems you own or have written permission to assess. The maintainers assume no responsibility for misuse.
 
-![4myPown CLI chat interface](./image.png)
+![Zevionx CLI chat interface](./image.png)
 
 ---
 
-## Why 4myPown?
+## Why Zevionx?
 
-- **Autonomous AI Operator** – The single-shot agent (`pawn.py`) plans reconnaissance, validates commands, captures evidence, and writes a concise report.
+- **Autonomous AI Operator** – The single-shot agent (`zevionx.py`) plans reconnaissance, validates commands, captures evidence, and writes a concise report.
 - **Terminal Chat UI** – Rich-powered chat interface with streaming updates, context memory, a persistent “Running…” indicator, and quick actions for updating API keys on the fly.
 - **Built-In Training Target** – The intentionally vulnerable **Suno** banking demo (Flask) lets you practice JWT tampering, SSRF, command injection, and file disclosure scenarios offline.
 - **Safety Guardrails** – Command validator enforces allow-lists, scope restrictions, duplicate avoidance, and blocks destructive patterns.
-- **Friendly Builder** – Crafted by Rachid Laad. Connect & collaborate: `X.com/@Rachid_LLLL`, `rachidshade@gmail.com`, `github.com/rachidlaad`.
+- **Friendly Builder** – Crafted by Rachid Laadraoui. Connect & collaborate: `X.com/@Rachid_LLLL`, `rachidshade@gmail.com`, `github.com/rachidlaad`.
 
 ---
 
@@ -53,8 +53,8 @@ AI-assisted penetration testing for security researchers, red-teamers, and defen
 ## Quick Start
 
 ```bash
-git clone https://github.com/rachidlaad/4myPawn-CLI.git
-cd 4myPawn-CLI
+git clone https://github.com/rachidlaad/Zevionx-CLI.git
+cd Zevionx-CLI
 
 # 1) create and activate a virtual environment
 python3 -m venv .venv
@@ -82,7 +82,7 @@ pip install -r requirements-suno.txt
 > The tree includes a `.gitignore` so virtualenvs, logs, and `.env` stay local—keep your real API keys out of source control.
 
 Optional extras:
-- `fastapi` + `aioredis` enable the experimental SSE API in `pown_cli/ui/sse_api.py`.
+- `fastapi` + `aioredis` enable the experimental SSE API in `zevionx_cli/ui/sse_api.py`.
 - `prompt_toolkit` adds enhanced line-editing inside the chat UI.
 - `requirements-suno.txt` installs the vulnerable Suno target for local practice.
 
@@ -93,7 +93,7 @@ Optional extras:
 You can supply keys in two ways:
 
 1. **Interactive Quick Actions**  
-   Launch the terminal chat UI (`python3 pawn.py`) and press `/` → `1` or `/` → `2` to enter OpenAI or Gemini keys. The UI updates your environment and `.env`.
+   Launch the terminal chat UI (`python3 zevionx.py`) and press `/` → `1` or `/` → `2` to enter OpenAI or Gemini keys. The UI updates your environment and `.env`.
 
 2. **Manual `.env` update**  
    Create `.env` at the project root (or edit the existing file) and add:
@@ -113,7 +113,7 @@ If no provider key is present, the agent will stop with a clear “API key not c
 
 ```bash
 # interactive chat UI with spinner, command history, and quick actions
-python3 pawn.py
+python3 zevionx.py
 ```
 
 **Workflow highlights**
@@ -126,12 +126,12 @@ python3 pawn.py
 
 ```bash
 # single-shot agent (auto wraps bare objective into --prompt)
-python3 pawn.py "Assess http://127.0.0.1:5000/api/diagnostics/ping for command injection and other exposures" \
+python3 zevionx.py "Assess http://127.0.0.1:5000/api/diagnostics/ping for command injection and other exposures" \
   --provider openai \
   --max-commands 1
 ```
 
-Flags mirror the options in `pown_cli.py`:
+Flags mirror the options in `zevionx_cli.py`:
 - `--provider` (`openai` | `gemini`)
 - `--max-commands` safeguard
 
@@ -157,18 +157,18 @@ See [`README_SUNO.md`](README_SUNO.md) for walkthrough goals. Point the agent at
 
 ## Outputs & Artifacts
 
-- **Run reports**: stored in `.pown_runs/<run_id>/report.md` plus a session `run_result.json`. If you prefer to keep the working tree clean, delete or move these after review.
+- **Run reports**: stored in `.zevionx_runs/<run_id>/report.md` plus a session `run_result.json`. If you prefer to keep the working tree clean, delete or move these after review.
 - **Evidence snippets**: extracted lines attached to each observation to speed up report authoring.
-- **Console transcript**: use `pawn_chat.log` if you capture terminal output (ignored by git).
+- **Console transcript**: use `zevionx_chat.log` if you capture terminal output (ignored by git).
 
 ---
 
 ## Project Structure
 
 ```
-├── pawn.py                     # Unified entry point (auto adds --prompt)
-├── pown_cli.py                 # Single-shot autonomous agent & CLI
-├── pown_cli/                   # Package (chat UI, orchestrator shim, helpers)
+├── zevionx.py                  # Unified entry point (auto adds --prompt)
+├── zevionx_cli.py              # Single-shot autonomous agent & CLI
+├── zevionx_cli/                # Package (chat UI, orchestrator shim, helpers)
 │   ├── core/orchestrator.py    # Bridges CLI orchestrator to single-shot agent
 │   ├── ui/chat_ui.py          # Rich chat interface with spinner + quick actions
 │   ├── ui/interactive_ui.py    # Menu-driven UI
@@ -211,10 +211,10 @@ See [`README_SUNO.md`](README_SUNO.md) for walkthrough goals. Point the agent at
   Email: [rachidshade@gmail.com](mailto:rachidshade@gmail.com)  
   GitHub: [github.com/rachidlaad](https://github.com/rachidlaad)
 - Have feedback or want to collaborate? Open an issue, share ideas, or reach out directly. Bug fixes, new features, and target scenarios are all welcome.
-- If 4myPown CLI helps your security workflow, star the repo so more researchers and defenders can discover this AI pentesting copilot.
+- If Zevionx CLI helps your security workflow, star the repo so more researchers and defenders can discover this AI pentesting copilot.
 
 Stay safe and stay ethical.
 
 ## License
 
-4myPown CLI is licensed under the Apache License 2.0. See [LICENSE](./LICENSE).
+Zevionx CLI is licensed under the Apache License 2.0. See [LICENSE](./LICENSE).

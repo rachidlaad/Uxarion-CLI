@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-4myPown - Interactive CLI Entry Point
+Zevionx - Interactive CLI Entry Point
 Modern Rich-based terminal interface with chat-style interaction
 """
 from __future__ import annotations
@@ -32,22 +32,22 @@ console = Console()
 
 
 def print_banner():
-    """Print the 4myPown banner"""
+    """Print the Zevionx banner"""
     banner = """──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-                       ██████╗   ██╗   ██╗███╗   ██╗
-                       ██╔══██╗  ██║   ██║████╗  ██║
-                       ██████╔╝  ██║   ██║██╔██╗ ██║
-                       ██╔══██╗  ██║   ██║██║╚██╗██║
-                       ██║  ██║  ╚██████╔╝██║ ╚████║
-                       ╚═╝  ╚═╝   ╚═════╝ ╚═╝  ╚═══╝
+                      ███████╗███████╗██╗   ██╗██╗ ██████╗ ███╗   ██╗██╗  ██╗
+                      ██╔════╝██╔════╝██║   ██║██║██╔════╝ ████╗  ██║██║ ██╔╝
+                      ███████╗█████╗  ██║   ██║██║██║  ███╗██╔██╗ ██║█████╔╝ 
+                      ╚════██║██╔══╝  ╚██╗ ██╔╝██║██║   ██║██║╚██╗██║██╔═██╗ 
+                      ███████║███████╗ ╚████╔╝ ██║╚██████╔╝██║ ╚████║██║  ██╗
+                      ╚══════╝╚══════╝  ╚═══╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝
 
-                              4myPown CLI
+                              Zevionx CLI
 
 I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊
 X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad
 
-4myPawn is an AI pentesting copilot, open-source for the pentesting community.
-Official site: https://4mypawn.com/
+Zevionx is an AI pentesting copilot, open-source for the pentesting community.
+Official site: https://zevionx.com/
 Tip: press '/' in chat to update API keys via the quick actions menu.
 Bring your own API key and drive proven CLI tools (sqlmap, gobuster, nikto, nmap)
 through a safe, single-command loop.
@@ -98,7 +98,7 @@ def pentest(
     if target:
         console.print(f"[cyan]# Target:[/] {target}")
 
-    agent_script = Path(__file__).resolve().parents[2] / "pown_cli.py"
+    agent_script = Path(__file__).resolve().parents[2] / "zevionx_cli.py"
     if not agent_script.exists():
         console.print(f"[red]Agent entrypoint not found at {agent_script}[/]")
         raise typer.Exit(code=1)

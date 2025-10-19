@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""4myPown – AI-driven pentesting agent with single execution gateway."""
+"""Zevionx – AI-driven pentesting agent with single execution gateway."""
 from __future__ import annotations
 
 import argparse
@@ -67,7 +67,7 @@ IDLE_TIMEOUT_S = 180
 WALL_CLOCK_LIMIT_S = 20 * 60
 SCHEMA_VERSION = "1.0"
 
-_ENV_DEFAULT_TOOLS = os.environ.get("POWN_ALLOW_TOOLS")
+_ENV_DEFAULT_TOOLS = os.environ.get("ZEVIONX_ALLOW_TOOLS") or os.environ.get("POWN_ALLOW_TOOLS")
 DEFAULT_TOOL_ALLOW: Optional[Set[str]] = (
     {tool.strip() for tool in _ENV_DEFAULT_TOOLS.split(",") if tool.strip()}
     if _ENV_DEFAULT_TOOLS
@@ -987,11 +987,11 @@ class Agent:
         hard_cap = max_commands if max_commands is not None else parse_max_commands(user_prompt)
         executed = 0
         stop_reason = "completed"
-        artifacts_root = os.environ.get("POWN_ARTIFACT_DIR")
+        artifacts_root = os.environ.get("ZEVIONX_ARTIFACT_DIR") or os.environ.get("POWN_ARTIFACT_DIR")
         if artifacts_root:
             run_dir = os.path.abspath(os.path.join(artifacts_root, run_id))
         else:
-            run_dir = os.path.abspath(os.path.join(os.getcwd(), ".pown_runs", run_id))
+            run_dir = os.path.abspath(os.path.join(os.getcwd(), ".zevionx_runs", run_id))
         os.makedirs(run_dir, exist_ok=True)
         execution_cwd = os.getcwd()
 
@@ -1463,20 +1463,20 @@ class CLIEventPrinter:
 
 def print_banner() -> None:
     banner_lines = [
-        "██████╗   ██╗   ██╗███╗   ██╗",
-        "██╔══██╗  ██║   ██║████╗  ██║",
-        "██████╔╝  ██║   ██║██╔██╗ ██║",
-        "██╔══██╗  ██║   ██║██║╚██╗██║",
-        "██║  ██║  ╚██████╔╝██║ ╚████║",
-        "╚═╝  ╚═╝   ╚═════╝ ╚═╝  ╚═══╝",
+        "███████╗███████╗██╗   ██╗██╗ ██████╗ ███╗   ██╗██╗  ██╗",
+        "██╔════╝██╔════╝██║   ██║██║██╔════╝ ████╗  ██║██║ ██╔╝",
+        "███████╗█████╗  ██║   ██║██║██║  ███╗██╔██╗ ██║█████╔╝ ",
+        "╚════██║██╔══╝  ╚██╗ ██╔╝██║██║   ██║██║╚██╗██║██╔═██╗ ",
+        "███████║███████╗ ╚████╔╝ ██║╚██████╔╝██║ ╚████║██║  ██╗",
+        "╚══════╝╚══════╝  ╚═══╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝",
         "",
-        "                 4myPown CLI",
+        "                     Zevionx CLI",
     ]
     builder_line = "I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊"
     contacts_line = "X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad"
-    mission_line = "4myPawn is an AI pentesting copilot, open-source for the pentesting community."
+    mission_line = "Zevionx is an AI pentesting copilot, open-source for the pentesting community."
     quick_actions_line = "Tip: press '/' in chat to update API keys via the quick actions menu."
-    website_line = "Official site: https://4mypawn.com/"
+    website_line = "Official site: https://zevionx.com/"
 
     console = Console() if RICH_AVAILABLE else None
 
@@ -1504,12 +1504,12 @@ def print_banner() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="4myPown AI Pentesting Agent",
+        description="Zevionx AI Pentesting Agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python pown_cli.py --prompt "Scan http://localhost:8080 with nmap"
-  python pown_cli.py --prompt "Enumerate directories on https://target.example"
+  python zevionx_cli.py --prompt "Scan http://localhost:8080 with nmap"
+  python zevionx_cli.py --prompt "Enumerate directories on https://target.example"
         """,
     )
     parser.add_argument("--prompt", required=True, help="Pentesting objective or instructions")

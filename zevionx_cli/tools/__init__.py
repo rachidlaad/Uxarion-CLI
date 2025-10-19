@@ -1,4 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Security tools integration for 4myPown CLI
+Security tools integration for Zevionx CLI
 """

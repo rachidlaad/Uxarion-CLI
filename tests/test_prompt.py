@@ -12,8 +12,8 @@ from pathlib import Path
 
 def _load_cli_module():
     root = Path(__file__).resolve().parents[1]
-    module_path = root / "pown_cli.py"
-    spec = importlib.util.spec_from_file_location("pown_cli_cli", module_path)
+    module_path = root / "zevionx_cli.py"
+    spec = importlib.util.spec_from_file_location("zevionx_cli_cli", module_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[spec.name] = module
@@ -21,7 +21,7 @@ def _load_cli_module():
     return module
 
 
-pown_cli = _load_cli_module()
+zevionx_cli = _load_cli_module()
 
 
 FORBIDDEN_TERMS = ("provider", "timeout", "budget", "verbosity", "log")
@@ -29,15 +29,15 @@ FORBIDDEN_TERMS = ("provider", "timeout", "budget", "verbosity", "log")
 
 class DecisionPromptTests(unittest.TestCase):
     def test_decision_prompt_excludes_internal_terms(self) -> None:
-        prompt_lower = pown_cli.DECISION_PROMPT.lower()
+        prompt_lower = zevionx_cli.DECISION_PROMPT.lower()
         for term in FORBIDDEN_TERMS:
             self.assertNotIn(term, prompt_lower)
 
 
 class PlannerRuntimeTests(unittest.TestCase):
     def test_request_decision_payload_clean(self) -> None:
-        policy = pown_cli.Policy()
-        agent = pown_cli.Agent(policy=policy, provider="gemini")
+        policy = zevionx_cli.Policy()
+        agent = zevionx_cli.Agent(policy=policy, provider="gemini")
 
         captured = {}
 
@@ -47,7 +47,7 @@ class PlannerRuntimeTests(unittest.TestCase):
             captured["provider"] = provider
             return {"stop": True, "reason": "noop"}
 
-        with mock.patch.object(pown_cli, "chat_json", side_effect=fake_chat_json):
+        with mock.patch.object(zevionx_cli, "chat_json", side_effect=fake_chat_json):
             agent._request_decision_freeform("scan http://example.com", "http://example.com")
 
         self.assertEqual(captured["payload"], {})
@@ -56,8 +56,8 @@ class PlannerRuntimeTests(unittest.TestCase):
             self.assertNotIn(term, prompt_lower)
 
     def test_run_uses_minimal_prompt_sections(self) -> None:
-        policy = pown_cli.Policy(dry_run=True)
-        agent = pown_cli.Agent(policy=policy, provider="gemini")
+        policy = zevionx_cli.Policy(dry_run=True)
+        agent = zevionx_cli.Agent(policy=policy, provider="gemini")
 
         user_text = "test this for sql on http://localhost:8080"
 
@@ -84,8 +84,8 @@ class PlannerRuntimeTests(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(tmp_dir)
             try:
-                with mock.patch.object(pown_cli, "chat_json", side_effect=fake_chat_json), mock.patch.object(
-                    pown_cli, "chat_text", return_value="Test report"
+                with mock.patch.object(zevionx_cli, "chat_json", side_effect=fake_chat_json), mock.patch.object(
+                    zevionx_cli, "chat_text", return_value="Test report"
                 ):
                     buf = io.StringIO()
                     original_stdout = sys.stdout
@@ -121,8 +121,8 @@ class PlannerRuntimeTests(unittest.TestCase):
         )
 
     def test_duplicate_feedback(self) -> None:
-        policy = pown_cli.Policy(dry_run=True)
-        agent = pown_cli.Agent(policy=policy, provider="gemini")
+        policy = zevionx_cli.Policy(dry_run=True)
+        agent = zevionx_cli.Agent(policy=policy, provider="gemini")
 
         align_response = {
             "intent_paragraph": "Recon the target",
@@ -143,8 +143,8 @@ class PlannerRuntimeTests(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(tmp_dir)
             try:
-                with mock.patch.object(pown_cli, "chat_json", side_effect=fake_chat_json), mock.patch.object(
-                    pown_cli, "chat_text", return_value="Test report"
+                with mock.patch.object(zevionx_cli, "chat_json", side_effect=fake_chat_json), mock.patch.object(
+                    zevionx_cli, "chat_text", return_value="Test report"
                 ):
                     buf = io.StringIO()
                     original_stdout = sys.stdout

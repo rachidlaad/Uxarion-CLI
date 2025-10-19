@@ -10,7 +10,7 @@ from typing import Any, Optional, List
 
 
 HOME_DIR = Path(os.path.expanduser("~"))
-BASE_DIR = HOME_DIR / ".4mypown"
+BASE_DIR = HOME_DIR / ".zevionx"
 SESSIONS_DIR = BASE_DIR / "sessions"
 TODO_PATH = BASE_DIR / "todo.json"
 

@@ -1,4 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Core components for 4myPown CLI
+Core components for Zevionx CLI
 """

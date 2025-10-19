@@ -1,17 +1,17 @@
 #!/bin/bash
 # SPDX-License-Identifier: Apache-2.0
 
-# 4myPown CLI Setup Script
+# Zevionx CLI Setup Script
 # This script helps configure the environment and install dependencies
 
 set -e
 
-echo "🛡️  4myPown CLI Setup"
+echo "🛡️  Zevionx CLI Setup"
 echo "===================="
 
 # Check if we're in the right directory
 if [ ! -f "pyproject.toml" ]; then
-    echo "❌ Error: Please run this script from the Pown-cli directory"
+    echo "❌ Error: Please run this script from the Zevionx-CLI directory"
     exit 1
 fi
 
@@ -30,7 +30,7 @@ echo "⬆️  Upgrading pip..."
 pip install --upgrade pip --quiet
 
 # Install CLI package
-echo "📥 Installing 4myPown CLI..."
+echo "📥 Installing Zevionx CLI..."
 pip install -e . --quiet
 
 # Install optional dependencies
@@ -77,15 +77,14 @@ echo "2. Activate the virtual environment:"
 echo "   source .venv/bin/activate"
 echo  
 echo "3. Start the CLI:"
-echo "   pown"
+echo "   zevionx"
 echo "   or"
-echo "   pown chat -t http://localhost:8080"
+echo "   zevionx chat -t http://localhost:8080"
 echo
 echo "4. Available commands:"
-echo "   pown --help           # Show all commands"
-echo "   pown chat            # Interactive chat mode"
-echo "   pown run \"objective\"  # Autonomous mode"
-echo "   pown todo gen \"task\" # Generate security tasks"
-echo "   pown cmd \"command\"   # Execute single command"
+echo "   zevionx --help           # Show all commands"
+echo "   zevionx chat            # Interactive chat mode"
+echo "   zevionx menu            # Menu-based experience"
+echo "   zevionx pentest \"objective\" --target https://example.com"
 echo
 echo "🔒 For security testing, make sure you have permission to test your targets!"

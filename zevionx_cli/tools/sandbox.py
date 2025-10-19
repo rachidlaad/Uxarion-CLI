@@ -27,7 +27,7 @@ class SecureSandbox:
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
         except PermissionError:
-            fallback_root = Path.cwd() / ".4mypown_local"
+            fallback_root = Path.cwd() / ".zevionx_local"
             fallback_root.mkdir(parents=True, exist_ok=True)
             target_dir = fallback_root / (session_dir.name if session_dir else "default")
             target_dir.mkdir(parents=True, exist_ok=True)

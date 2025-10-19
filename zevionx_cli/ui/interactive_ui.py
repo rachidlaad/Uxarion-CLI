@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Interactive Terminal UI for 4myPown
+Interactive Terminal UI for Zevionx
 Simplified Rich-based interface that works standalone
 """
 import sys
@@ -46,16 +46,19 @@ class InteractiveUI:
             sys.exit(0)
 
     def _get_banner(self) -> str:
-        """Return the 4myPown banner"""
+        """Return the Zevionx banner"""
         return """──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-                           █ █   █▀▄▀█   █ █   █▀▄   █▀█   █ █   █▀█
-                           ▀▀▀   █ ▀ █   ▀█▀   █▀    █▀█   ▀█▀   █ █
-                             █   █   █    █    █     █ █    █    █ █
+                           ███████╗███████╗██╗   ██╗██╗ ██████╗ ███╗   ██╗
+                           ██╔════╝██╔════╝██║   ██║██║██╔════╝ ████╗  ██║
+                           ███████╗█████╗  ██║   ██║██║██║  ███╗██╔██╗ ██║
+                           ╚════██║██╔══╝  ╚██╗ ██╔╝██║██║   ██║██║╚██╗██║
+                           ███████║███████╗ ╚████╔╝ ██║╚██████╔╝██║ ╚████║
+                           ╚══════╝╚══════╝  ╚═══╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
 
 I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊
 X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad
 
-4myPawn is an AI pentesting copilot, open-source for the pentesting community.
+Zevionx is an AI pentesting copilot, open-source for the pentesting community.
 Bring your own API key and drive proven CLI tools (sqlmap, gobuster, nikto, nmap)
 through a safe, single-command loop.
 
@@ -105,7 +108,7 @@ through a safe, single-command loop.
     def _show_menu(self):
         """Show interactive menu"""
         # Create a table for better formatting
-        table = Table(title="[bold cyan]4myPown Menu Options[/]", show_header=False)
+        table = Table(title="[bold cyan]Zevionx Menu Options[/]", show_header=False)
         table.add_column("Option", style="bold yellow")
         table.add_column("Description", style="white")
 
@@ -172,7 +175,7 @@ through a safe, single-command loop.
             self.console.print("[yellow]⚔️  Advanced tools enabled (SQLMap, Nmap, Gobuster, Nikto)[/]")
 
         # Build command to execute the original CLI
-        agent_script = Path(__file__).resolve().parents[2] / "pown_cli.py"
+        agent_script = Path(__file__).resolve().parents[2] / "zevionx_cli.py"
         if not agent_script.exists():
             raise FileNotFoundError(f"Agent entrypoint not found at {agent_script}")
 

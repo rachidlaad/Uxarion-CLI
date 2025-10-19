@@ -1,10 +1,10 @@
-# 4myPawn CLI Orchestration Flow
+# Zevionx CLI Orchestration Flow
 
 ## Visual Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           4myPawn AI Agent Orchestration                       │
+│                           Zevionx AI Agent Orchestration                       │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │  ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐  │

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-4myPown Autonomous Pentesting Agent
+Zevionx Autonomous Pentesting Agent
 Modern architecture inspired by SWE-agent and successful coding agents
 """
 from __future__ import annotations
