@@ -26,9 +26,29 @@ from rich.text import Text
 
 from .ui.interactive_ui import InteractiveUI
 from .ui.chat_ui import ChatUI
+from . import __version__
 
 app = typer.Typer(add_completion=False, no_args_is_help=False)
 console = Console()
+
+
+@app.callback(invoke_without_command=True)
+def app_entrypoint(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        help="Show Zevionx version and exit",
+    ),
+) -> None:
+    """Primary entrypoint that exposes --version."""
+    if version:
+        typer.echo(f"zevionx {__version__}")
+        raise typer.Exit()
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
 
 
 def print_banner():
