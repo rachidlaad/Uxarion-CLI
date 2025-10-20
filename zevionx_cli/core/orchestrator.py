@@ -15,7 +15,7 @@ def _load_agent_module():
     global _AGENT_MODULE
     if _AGENT_MODULE is not None:
         return _AGENT_MODULE
-        script_path = Path(__file__).resolve().parents[2] / "zevionx_cli.py"
+    script_path = Path(__file__).resolve().parents[2] / "zevionx_cli.py"
     module_name = "zevionx_cli_runtime"
     spec = importlib.util.spec_from_file_location(module_name, script_path)
     if spec is None or spec.loader is None:
