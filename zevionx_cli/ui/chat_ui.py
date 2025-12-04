@@ -100,7 +100,8 @@ class ChatUI:
         self.version, self.build_label = self._resolve_build_metadata()
 
         # Settings
-        self.target = "127.0.0.1"
+        # Default to no target so scope isn’t unintentionally restricted
+        self.target = ""
         self.objective = "Security assessment"
         self.provider = os.getenv("DEFAULT_PROVIDER", CHAT_DEFAULT_PROVIDER)
         self.enable_advanced = False
@@ -346,6 +347,11 @@ class ChatUI:
                 f"[bright_cyan]→ Command:[/] {command}",
                 f"[grey58]   {reason}[/]" if reason else "",
             ], None
+        if etype == "output":
+            line = (event.get("line") or "").strip()
+            if not line:
+                return None, None
+            return [f"[grey50]{line}[/]"], None
         if etype == "rejected":
             reason = event.get("reason", "")
             validator = event.get("validator", {})
@@ -571,7 +577,9 @@ class ChatUI:
         self.console.print("\n[cyan]Quick Actions[/]")
         self.console.print("  1) Set OpenAI API key")
         self.console.print("  2) Set Gemini API key")
-        self.console.print("  3) Cancel")
+        self.console.print("  3) Switch provider to OpenAI (gpt-5)")
+        self.console.print("  4) Switch provider to Gemini")
+        self.console.print("  5) Cancel")
         choice = self.console.input("Select option: ").strip()
 
         if choice == "1":
@@ -582,6 +590,12 @@ class ChatUI:
             key = self._prompt_for_key("Gemini")
             if key:
                 self._apply_api_key("GEMINI_API_KEY", "Gemini", key)
+        elif choice == "3":
+            self.provider = "openai"
+            self.console.print("[green]Provider switched to OpenAI (gpt-5).[/]")
+        elif choice == "4":
+            self.provider = "gemini"
+            self.console.print("[green]Provider switched to Gemini.[/]")
         else:
             self.console.print("[dim]Menu cancelled.[/]")
 

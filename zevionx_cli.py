@@ -64,7 +64,7 @@ DEFAULT_TIMEOUT_S = 600
 MIN_TIMEOUT_S = 10
 MAX_TIMEOUT_S = 3600
 IDLE_TIMEOUT_S = 180
-WALL_CLOCK_LIMIT_S = 20 * 60
+WALL_CLOCK_LIMIT_S: Optional[int] = None
 SCHEMA_VERSION = "1.0"
 
 _ENV_DEFAULT_TOOLS = os.environ.get("ZEVIONX_ALLOW_TOOLS") or os.environ.get("POWN_ALLOW_TOOLS")
@@ -118,6 +118,7 @@ def stream_command_execution(
     workdir: Optional[str] = None,
     use_stdbuf: bool = False,
     emit_console: bool = True,
+    line_callback: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Run a shell command and stream output to stdout."""
     if emit_console:
@@ -168,6 +169,11 @@ def stream_command_execution(
             if line:
                 clean = line.rstrip("\n")
                 output_lines.append(clean)
+                if line_callback:
+                    try:
+                        line_callback(clean)
+                    except Exception:
+                        pass
                 if clean == last_line and (now - last_line_time) < 2.0:
                     repeat_count += 1
                     if repeat_count > 5:
@@ -287,8 +293,8 @@ def validate_freeform_command(
     cmd: str,
     *,
     scope_hosts: Set[str],
-    allow_tools: Set[str],
-    deny_tools: Set[str],
+    allow_tools: Optional[Set[str]] = None,
+    deny_tools: Set[str] = frozenset(),
     scope_cidrs: Optional[List[ipaddress._BaseNetwork]] = None,
 ) -> tuple[bool, str, Dict[str, Any]]:
     statement = cmd.strip()
@@ -300,8 +306,6 @@ def validate_freeform_command(
     tool = first_tool(statement)
     if tool in deny_tools:
         return False, f"tool explicitly denied: {tool}", {"risk": 0.9}
-    if tool and allow_tools and tool not in allow_tools:
-        return False, f"tool not allow-listed: {tool}", {"risk": 0.6}
 
     if tool and shutil.which(tool) is None:
         return False, f"tool not found on PATH: {tool}", {"risk": 0.6, "missing_tool": tool}
@@ -792,19 +796,21 @@ Reply ONLY with a JSON object matching:
   "command": "<single non-interactive shell command>"
 }}
 
-Context — mission and evidence:
-• Objective: {user_intent}
-• Target hints: {target_hints}
-• Recent activity (newest first): {history_excerpt}
+Context - mission and evidence:
+- Objective: {user_intent}
+- Target hints: {target_hints}
+- Recent activity (newest first): {history_excerpt}
+- Available tools detected: {tools_hint}
 
 Engagement doctrine:
 1. Start with lightweight reconnaissance (e.g., curl/httpie/banner grabs) before launching intrusive scans.
-2. Progress through phases: recon → enumerate surface → probe for vulns → verify/exploit → report. Reference prior evidence before escalating.
+2. Progress through phases: recon -> enumerate surface -> probe for vulns -> verify/exploit -> report. Reference prior evidence before escalating.
 3. Never repeat the same command signature unless parameters meaningfully change.
 4. One shell command only; no control operators (; && ||), no subshells (`...` or $(...)). At most one pipe to grep/awk/sed/cut/head/tail/tee.
 5. Prefer read-only techniques unless evidence justifies deeper testing. Note justification in "reason".
-6. Tools must operate on in-scope hosts/URLs derived from the context above.
-7. If you intend to stop, respond with {{"stop": true, "reason": "<summary>"}} and omit "command".
+6. Tools must operate on in-scope hosts/URLs derived from the context above; use actual hostnames from scope/intent (no placeholders like example.com or <target>).
+7. Move beyond repeated curl header checks after initial recon; use appropriate tools from the available list for DNS/TLS/service profiling (e.g., nslookup/host, openssl s_client, nmap ssl-enum-ciphers, whatweb/nikto if present).
+8. If you intend to stop, respond with {{"stop": true, "reason": "<summary>"}} and omit "command".
 
 Return valid JSON only."""
 
@@ -849,6 +855,7 @@ class Agent:
         workdir: str,
         use_stdbuf: bool,
         emit_console: bool,
+        line_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         idle_timeout = self.policy.idle_timeout_s or None
 
@@ -873,6 +880,7 @@ class Agent:
             workdir=workdir,
             use_stdbuf=use_stdbuf,
             emit_console=emit_console,
+            line_callback=line_callback,
         )
         result.update(
             {
@@ -886,12 +894,13 @@ class Agent:
 
     # ------------------------------------------------------------------
     def _request_decision_freeform(
-        self, user_intent: str, target_hints: str
+        self, user_intent: str, target_hints: str, tools_hint: str
     ) -> Dict[str, Any]:
         prompt = DECISION_PROMPT.format(
             user_intent=user_intent.strip(),
             target_hints=target_hints.strip() or "(none)",
             history_excerpt=_history_excerpt(self.memory.history),
+            tools_hint=tools_hint or "none detected",
         )
         return chat_json(prompt, {}, self.provider)
 
@@ -1003,10 +1012,10 @@ class Agent:
             scope_set = set()
         scope_cidrs_list = scope_cidrs or []
 
-        allowed_tools: Optional[Set[str]] = set(DEFAULT_TOOL_ALLOW) if DEFAULT_TOOL_ALLOW else None
+        allowed_tools: Optional[Set[str]] = None
         if allow_tools:
             extras = {tool.strip() for tool in allow_tools if tool.strip()}
-            allowed_tools = (allowed_tools or set()) | extras
+            allowed_tools = extras or None
 
         denied_tools = {tool.strip() for tool in deny_tools or set() if tool.strip()}
         validate_commands = validate
@@ -1020,8 +1029,28 @@ class Agent:
         user_intent_text = user_prompt.strip()
         target_hint_text = "\n".join(str(t) for t in target_hints_list) if target_hints_list else "(none)"
 
+        common_tools = [
+            "curl",
+            "wget",
+            "httpie",
+            "nmap",
+            "openssl",
+            "sslyze",
+            "sslscan",
+            "whatweb",
+            "nikto",
+            "gobuster",
+            "ffuf",
+            "nslookup",
+            "host",
+            "dig",
+            "testssl.sh",
+        ]
+        available_tools = [tool for tool in common_tools if shutil.which(tool)]
+        tools_hint = ", ".join(available_tools) if available_tools else "none detected"
+
         while True:
-            if time.time() - start_time > WALL_CLOCK_LIMIT_S:
+            if WALL_CLOCK_LIMIT_S and time.time() - start_time > WALL_CLOCK_LIMIT_S:
                 if emit_console:
                     print("⏳ Wall clock limit reached, wrapping up.")
                 stop_reason = f"wall-clock limit ({WALL_CLOCK_LIMIT_S}s) reached"
@@ -1030,7 +1059,7 @@ class Agent:
             step += 1
 
             try:
-                decision = self._request_decision_freeform(user_intent_text, target_hint_text)
+                decision = self._request_decision_freeform(user_intent_text, target_hint_text, tools_hint)
             except Exception as exc:
                 if emit_console:
                     print(f"error: decision request failed ({exc})")
@@ -1180,6 +1209,18 @@ class Agent:
                 print(f"thinking: {thought_line}")
                 print(f"→ {command}")
 
+            def _line_event(line: str) -> None:
+                self._push_event(
+                    event_callback,
+                    {
+                        "type": "output",
+                        "run_id": run_id,
+                        "step": step,
+                        "command": command,
+                        "line": line,
+                    },
+                )
+
             observation = self._execute_command(
                 command,
                 reason_text,
@@ -1187,6 +1228,7 @@ class Agent:
                 workdir=execution_cwd,
                 use_stdbuf=has_stdbuf,
                 emit_console=emit_console,
+                line_callback=_line_event if event_callback else None,
             )
             executed += 1
             planner_retries = 0
@@ -1272,9 +1314,6 @@ class Agent:
                 if emit_console:
                     print(f"🏁 Command budget reached (executed {executed}/{hard_cap}).")
                 stop_reason = f"command budget used ({executed}/{hard_cap})"
-                break
-            if step >= 50:
-                stop_reason = "loop safeguard triggered"
                 break
 
         live_seen = any(
@@ -1410,6 +1449,13 @@ class CLIEventPrinter:
                     self.console.print(f"[yellow]→ {command}[/yellow]")
                 else:
                     print(_color(f"→ {command}", Fore.YELLOW))
+        elif etype == "output":
+            line = (event.get("line") or "").strip()
+            if line:
+                if self.console:
+                    self.console.print(f"[dim]{line}[/dim]")
+                else:
+                    print(_color(line, DIM))
         elif etype == "observation":
             obs = event.get("observation", {})
             command = obs.get("command", "")
