@@ -11,18 +11,26 @@ __pycache__/
 
 # Runtime outputs and logs
 .zevionx_runs/
+.uxarion_runs/
 run_result.json
 run.jsonl
 zevionx_chat.log
+uxarion_chat.log
+pawn_chat.log
 suno_run.log
 *.log
 
 # Local configuration / secrets
 .env
 .env.*
+.venv_wsl/
 
 # Temporary files
 /To
 cookies.txt
 headers.txt
 *_headers.txt
+
+# Packaging / build output
+build/
+dist/
