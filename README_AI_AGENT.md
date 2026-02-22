@@ -1,10 +1,10 @@
-# Zevionx AI Agent - Autonomous Pentesting Framework
+# Uxarion AI Agent - Autonomous Pentesting Framework
 
 > **⚠️ IMPORTANT**: This tool is for defensive security testing only. Use only on assets you own or have explicit written authorization to test.
 
 ## Overview
 
-Zevionx AI Agent is a fully autonomous penetration testing framework driven entirely by AI planning. Unlike traditional pentesting tools with hardcoded scripts, this system uses Large Language Models to dynamically plan, execute, and adapt reconnaissance and security testing based on real-time discoveries.
+Uxarion AI Agent is a fully autonomous penetration testing framework driven entirely by AI planning. Unlike traditional pentesting tools with hardcoded scripts, this system uses Large Language Models to dynamically plan, execute, and adapt reconnaissance and security testing based on real-time discoveries.
 
 ## Key Features
 
@@ -42,7 +42,7 @@ Zevionx AI Agent is a fully autonomous penetration testing framework driven enti
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Zevionx AI Agent                        │
+│                     Uxarion AI Agent                        │
 ├─────────────────────────────────────────────────────────────┤
 │  Terminal UI  │  Web Dashboard  │  REST API  │  CLI Tool    │
 ├─────────────────────────────────────────────────────────────┤
@@ -74,7 +74,7 @@ Zevionx AI Agent is a fully autonomous penetration testing framework driven enti
 ```bash
 # Clone repository
 git clone <repository-url>
-cd Zevionx-CLI
+cd Uxarion-CLI
 
 # Install dependencies
 pip install -r requirements.txt
@@ -98,13 +98,13 @@ docker compose --profile api up -d
 
 ```bash
 # CLI mode
-python -m zevionx_cli.ai_orchestrator --target 127.0.0.1 --mode recon
+python -m uxarion_cli.ai_orchestrator --target 127.0.0.1 --mode recon
 
 # Interactive terminal UI
-python -m zevionx_cli.ui.terminal_ui
+python -m uxarion_cli.ui.terminal_ui
 
 # API server
-python -m zevionx_cli.api_server
+python -m uxarion_cli.api_server
 # Then visit http://localhost:8000/demo
 ```
 
@@ -114,12 +114,12 @@ python -m zevionx_cli.api_server
 
 ```bash
 # Basic reconnaissance
-python -m zevionx_cli.ai_orchestrator \
+python -m uxarion_cli.ai_orchestrator \
   --target scanme.example.com \
   --objective "Map all web services and identify potential vulnerabilities"
 
 # Comprehensive penetration test
-python -m zevionx_cli.ai_orchestrator \
+python -m uxarion_cli.ai_orchestrator \
   --target 192.168.1.100 \
   --mode pentest \
   --objective "Full security assessment with safe exploitation"
@@ -129,7 +129,7 @@ python -m zevionx_cli.ai_orchestrator \
 
 ```bash
 # Start terminal interface
-python -m zevionx_cli.ui.terminal_ui
+python -m uxarion_cli.ui.terminal_ui
 
 # Use the interactive menu:
 you> /set target 127.0.0.1
@@ -141,7 +141,7 @@ you> /start
 
 ```bash
 # Start API server
-python -m zevionx_cli.api_server
+python -m uxarion_cli.api_server
 
 # Start reconnaissance via API
 curl -X POST http://localhost:8000/api/v1/start \
@@ -181,7 +181,7 @@ The system supports multiple AI providers:
 
 ```python
 # Custom provider example
-from zevionx_cli.ai_providers import register_provider
+from uxarion_cli.ai_providers import register_provider
 
 class CustomProvider:
     def generate(self, prompt: str) -> str:
@@ -284,7 +284,7 @@ curl http://localhost:8000/health
 
 ### Project Structure
 ```
-zevionx_cli/
+uxarion_cli/
 ├── agents/           # Specialized AI agents
 ├── bus/             # Event streaming
 ├── memory/          # Knowledge graph
@@ -296,7 +296,7 @@ zevionx_cli/
 
 ### Adding New Agents
 ```python
-from zevionx_cli.agents.base import BaseAgent
+from uxarion_cli.agents.base import BaseAgent
 
 class CustomAgent(BaseAgent):
     async def execute(self, objective: str, context: dict) -> dict:
@@ -306,7 +306,7 @@ class CustomAgent(BaseAgent):
 
 ### Custom Event Handlers
 ```python
-from zevionx_cli.bus.events import get_publisher
+from uxarion_cli.bus.events import get_publisher
 
 publisher = get_publisher()
 await publisher.custom_event(session_id, "my.event", {"data": "value"})
@@ -348,7 +348,7 @@ echo $OPENAI_API_KEY
 echo $ANTHROPIC_API_KEY
 
 # Test provider connectivity
-python -c "from zevionx_cli.ai_providers import resolve_default_provider; print(resolve_default_provider().generate('test'))"
+python -c "from uxarion_cli.ai_providers import resolve_default_provider; print(resolve_default_provider().generate('test'))"
 ```
 
 ## Contributing
@@ -375,4 +375,4 @@ This tool is for authorized security testing only. Users are responsible for ens
 
 ---
 
-*Zevionx AI Agent - Bringing AI-driven autonomy to penetration testing while maintaining safety and ethics.*
+*Uxarion AI Agent - Bringing AI-driven autonomy to penetration testing while maintaining safety and ethics.*

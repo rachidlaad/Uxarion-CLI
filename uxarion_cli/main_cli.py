@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Zevionx - Interactive CLI Entry Point
+Uxarion - Interactive CLI Entry Point
 Modern Rich-based terminal interface with chat-style interaction
 """
 from __future__ import annotations
@@ -39,12 +39,12 @@ def app_entrypoint(
         False,
         "--version",
         "-V",
-        help="Show Zevionx version and exit",
+        help="Show Uxarion version and exit",
     ),
 ) -> None:
     """Primary entrypoint that exposes --version."""
     if version:
-        typer.echo(f"zevionx {__version__}")
+        typer.echo(f"uxarion {__version__}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
@@ -52,19 +52,19 @@ def app_entrypoint(
 
 
 def print_banner():
-    """Print the Zevionx banner"""
-    banner = """                              Zevionx CLI
+    """Print the Uxarion banner"""
+    banner = """                              Uxarion CLI
 
 I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊
 X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad
 
-Zevionx is an AI pentesting copilot, open-source for the pentesting community.
-Official site: https://zevionx.com/
-Tip: press '/' in chat to update API keys via the quick actions menu.
+Uxarion is an AI pentesting copilot, open-source for the pentesting community.
+Official site: https://uxarion.com/
+Tip: press '/' in chat quick actions or run /addkey to update API keys.
 Bring your own API key and drive proven CLI tools (sqlmap, gobuster, nikto, nmap)
 through a safe, single-command loop.
 
-🤖 Now powered by Google Gemini for superior autonomous decision making (GPT-5 ready when billing is fixed)
+🤖 Powered by OpenAI GPT-5.2 for autonomous decision making
 ⚠️  AUTHORIZED USE ONLY - Test only systems you own or have permission to test
 🛡️  Enhanced with enterprise-grade safety controls and command validation
 
@@ -95,7 +95,6 @@ def menu() -> None:
 def pentest(
     objective: str = typer.Argument(..., help="What you want to test (e.g., 'Test login security')"),
     target: Optional[str] = typer.Option(None, "-t", "--target", help="Target URL or host"),
-    provider: Optional[str] = typer.Option(None, "-p", "--provider", help="AI provider (openai|gemini)"),
     max_steps: int = typer.Option(15, help="Maximum execution steps"),
     dry_run: bool = typer.Option(False, help="Show plan without execution"),
     enable_advanced: bool = typer.Option(False, help="Enable advanced tools (SQLMap, Nmap, etc.)"),
@@ -109,7 +108,7 @@ def pentest(
     if target:
         console.print(f"[cyan]# Target:[/] {target}")
 
-    agent_script = Path(__file__).resolve().parents[2] / "zevionx_cli.py"
+    agent_script = Path(__file__).resolve().parents[2] / "uxarion_cli.py"
     if not agent_script.exists():
         console.print(f"[red]Agent entrypoint not found at {agent_script}[/]")
         raise typer.Exit(code=1)
@@ -134,8 +133,6 @@ def pentest(
         cli_args.extend(["--allow-tools", "sqlmap,nmap,gobuster,nikto"])
     if dry_run:
         cli_args.append("--dry-run")
-    if provider:
-        cli_args.extend(["--provider", provider])
 
     try:
         subprocess.run(cli_args, check=True)

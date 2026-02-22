@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Zevionx – AI-driven pentesting agent with single execution gateway."""
+"""Uxarion – AI-driven pentesting agent with single execution gateway."""
 from __future__ import annotations
 
 import argparse
+import getpass
 import ipaddress
 import json
+import platform
 import os
 import re
 import shlex
@@ -17,8 +19,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set
-
-import requests
 
 try:
     from rich.console import Console
@@ -54,20 +54,23 @@ def _color(text: str, prefix: str) -> str:
 
 
 openai_client = None
-gemini_api_key = None
 
 DEFAULT_PROVIDER = "openai"
-OPENAI_MODEL = "gpt-5"
-GEMINI_MODEL = "gemini-1.5-flash-latest"
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.2")
+OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "high")
 
 DEFAULT_TIMEOUT_S = 600
 MIN_TIMEOUT_S = 10
 MAX_TIMEOUT_S = 3600
 IDLE_TIMEOUT_S = 180
+MAX_STREAM_LINE_CHARS = 400
+MAX_STREAM_CAPTURE_LINES = 1200
 WALL_CLOCK_LIMIT_S: Optional[int] = None
 SCHEMA_VERSION = "1.0"
+LOOP_MODE_DIRECT = "direct"
+LOOP_MODES = {LOOP_MODE_DIRECT}
 
-_ENV_DEFAULT_TOOLS = os.environ.get("ZEVIONX_ALLOW_TOOLS") or os.environ.get("POWN_ALLOW_TOOLS")
+_ENV_DEFAULT_TOOLS = os.environ.get("UXARION_ALLOW_TOOLS") or os.environ.get("POWN_ALLOW_TOOLS")
 DEFAULT_TOOL_ALLOW: Optional[Set[str]] = (
     {tool.strip() for tool in _ENV_DEFAULT_TOOLS.split(",") if tool.strip()}
     if _ENV_DEFAULT_TOOLS
@@ -84,6 +87,29 @@ DANGEROUS_PATTERNS = [
     r"\bchown\s+-R\s+/",
     r"\bchmod\s+-R\s+777\s+/",
 ]
+
+_REDACT_API_KEY_RE = re.compile(r"(key=)[^&\s]+")
+
+
+def _redact_api_keys(text: str) -> str:
+    return _REDACT_API_KEY_RE.sub(r"\1***REDACTED***", text or "")
+
+
+SHELL_BUILTINS = {
+    "command",
+    "cd",
+    "echo",
+    "export",
+    "printf",
+    "pwd",
+    "set",
+    "test",
+    "[",
+    "type",
+    "ulimit",
+    "umask",
+    "unset",
+}
 # ----------------------------------------------------------------------------
 # Policy / memory containers
 # ----------------------------------------------------------------------------
@@ -97,12 +123,17 @@ class Policy:
     show_banner: bool = True
     jsonl_path: Optional[str] = None
     verbosity: str = "normal"
+    loop_mode: str = LOOP_MODE_DIRECT
 
 
 @dataclass
 class Memory:
     history: List[Dict[str, Any]] = field(default_factory=list)
     discovered_vulns: List[str] = field(default_factory=list)
+    context_notes: List[str] = field(default_factory=list)
+    completed_deliverables: List[str] = field(default_factory=list)
+    blocked_deliverables: List[str] = field(default_factory=list)
+    next_focus: List[str] = field(default_factory=list)
 
 
 # ----------------------------------------------------------------------------
@@ -125,6 +156,7 @@ def stream_command_execution(
         print(f"\ncmd> {command}")
         print("\033[90m" + "─" * 80 + "\033[0m")
 
+    proc: Optional[subprocess.Popen[str]] = None
     try:
         run_cmd = command
         if use_stdbuf and command.lstrip()[:6] != "stdbuf":
@@ -136,7 +168,9 @@ def stream_command_execution(
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             executable="/bin/bash",
             preexec_fn=os.setsid,
@@ -144,6 +178,7 @@ def stream_command_execution(
         )
 
         output_lines: List[str] = []
+        capture_truncated = False
         termination_reason = "completed"
         last_line: Optional[str] = None
         last_line_time = start
@@ -163,12 +198,18 @@ def stream_command_execution(
                     print(f"\033[91m⏰ Command timed out after {timeout}s\033[0m")
                 break
 
-            line = proc.stdout.readline()
+            line = proc.stdout.readline() if proc.stdout else ""
             if not line and proc.poll() is not None:
                 break
             if line:
                 clean = line.rstrip("\n")
-                output_lines.append(clean)
+                if len(clean) > MAX_STREAM_LINE_CHARS:
+                    clean = f"{clean[:MAX_STREAM_LINE_CHARS - 20].rstrip()} ... [line truncated]"
+                if len(output_lines) < MAX_STREAM_CAPTURE_LINES:
+                    output_lines.append(clean)
+                elif not capture_truncated:
+                    output_lines.append(f"... (output truncated after {MAX_STREAM_CAPTURE_LINES} lines) ...")
+                    capture_truncated = True
                 if line_callback:
                     try:
                         line_callback(clean)
@@ -218,6 +259,15 @@ def stream_command_execution(
             "termination_reason": termination_reason,
         }
     except Exception as exc:
+        if proc is not None and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
         if emit_console:
             print(f"\033[91m❌ Error: {exc}\033[0m")
         return {
@@ -226,6 +276,12 @@ def stream_command_execution(
             "duration": 0.0,
             "termination_reason": "error",
         }
+    finally:
+        if proc is not None and proc.stdout is not None:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
 
 
 def parse_max_commands(user_prompt: str) -> Optional[int]:
@@ -243,6 +299,16 @@ def parse_max_commands(user_prompt: str) -> Optional[int]:
             except ValueError:
                 continue
     return None
+
+
+def normalize_loop_mode(loop_mode: Optional[str], *, default: str = LOOP_MODE_DIRECT) -> str:
+    candidate = (loop_mode or default).strip().lower()
+    if candidate == "guided":
+        candidate = LOOP_MODE_DIRECT
+    if candidate not in LOOP_MODES:
+        allowed = ", ".join(sorted(LOOP_MODES))
+        raise ValueError(f"Invalid loop mode '{loop_mode}'. Allowed values: {allowed}")
+    return candidate
 
 
 def in_cidrs(ip: ipaddress._BaseAddress, cidrs: Optional[List[ipaddress._BaseNetwork]]) -> bool:
@@ -269,7 +335,9 @@ def parse_hosts_and_urls(s: str) -> tuple[Set[str], Set[str]]:
         if token:
             hosts.add(token)
 
-    for match in re.finditer(r"\b[0-9a-fA-F]+:[0-9a-fA-F:]*[0-9a-fA-F]+\b", s):
+    # Require at least two ':' characters to avoid false-positives like the ":PORT"
+    # suffix in IPv4 URLs (e.g., "127.0.0.1:5002" contains "1:5002").
+    for match in re.finditer(r"\b[0-9a-fA-F]{0,4}:(?:[0-9a-fA-F]{0,4}:)+[0-9a-fA-F]{0,4}\b", s):
         token = match.group(0).strip("[]'\"")
         if token:
             hosts.add(token)
@@ -306,8 +374,10 @@ def validate_freeform_command(
     tool = first_tool(statement)
     if tool in deny_tools:
         return False, f"tool explicitly denied: {tool}", {"risk": 0.9}
+    if allow_tools and tool and tool not in SHELL_BUILTINS and tool not in allow_tools:
+        return False, f"tool not in allow-list: {tool}", {"risk": 0.7}
 
-    if tool and shutil.which(tool) is None:
+    if tool and tool not in SHELL_BUILTINS and shutil.which(tool) is None:
         return False, f"tool not found on PATH: {tool}", {"risk": 0.6, "missing_tool": tool}
 
     hosts, _ = parse_hosts_and_urls(statement)
@@ -332,7 +402,7 @@ def validate_freeform_command(
 
 def validate_decision_schema(decision: Dict[str, Any]) -> tuple[bool, str]:
     if not isinstance(decision, dict):
-        return False, "planner response not a JSON object"
+        return False, "decision response not a JSON object"
     if "stop" not in decision or not isinstance(decision["stop"], bool):
         return False, "missing or invalid 'stop' boolean"
     if "reason" not in decision or not isinstance(decision["reason"], str):
@@ -348,6 +418,9 @@ def validate_decision_schema(decision: Dict[str, Any]) -> tuple[bool, str]:
     timeout_hint = decision.get("timeout_hint")
     if timeout_hint is not None and not isinstance(timeout_hint, (int, float)):
         return False, "timeout_hint must be an integer or null"
+    final_reply = decision.get("final_reply")
+    if final_reply is not None and not isinstance(final_reply, str):
+        return False, "final_reply must be a string when provided"
     return True, "ok"
 
 
@@ -359,18 +432,99 @@ def load_api_keys() -> Dict[str, str]:
                 stripped = line.strip()
                 if stripped.startswith("OPENAI_API_KEY="):
                     keys["openai"] = stripped.split("=", 1)[1]
-                if stripped.startswith("GEMINI_API_KEY="):
-                    keys["gemini"] = stripped.split("=", 1)[1]
     except FileNotFoundError:
         pass
 
     env_openai = os.getenv("OPENAI_API_KEY")
-    env_gemini = os.getenv("GEMINI_API_KEY")
     if env_openai and "openai" not in keys:
         keys["openai"] = env_openai
-    if env_gemini and "gemini" not in keys:
-        keys["gemini"] = env_gemini
     return keys
+
+
+def _update_env_var_file(env_var: str, value: str, *, env_path: str = ".env") -> None:
+    lines: List[str] = []
+    try:
+        with open(env_path, "r", encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except FileNotFoundError:
+        lines = []
+
+    updated = False
+    for idx, line in enumerate(lines):
+        if line.startswith(f"{env_var}="):
+            lines[idx] = f"{env_var}={value}"
+            updated = True
+            break
+    if not updated:
+        lines.append(f"{env_var}={value}")
+
+    with open(env_path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines).rstrip() + "\n")
+
+
+def _mask_secret(value: str) -> str:
+    secret = (value or "").strip()
+    if not secret:
+        return "(empty)"
+    if len(secret) <= 8:
+        return secret[:2] + "..." + secret[-1:]
+    return secret[:6] + "..." + secret[-4:]
+
+
+def set_openai_api_key(api_key: Optional[str] = None) -> str:
+    key = (api_key or "").strip()
+    if not key:
+        if sys.stdin.isatty():
+            try:
+                key = getpass.getpass("Enter OpenAI API key: ").strip()
+            except Exception:
+                key = input("Enter OpenAI API key: ").strip()
+        else:
+            key = input("Enter OpenAI API key: ").strip()
+    if not key:
+        raise ValueError("No API key provided.")
+
+    os.environ["OPENAI_API_KEY"] = key
+    _update_env_var_file("OPENAI_API_KEY", key)
+
+    global openai_client
+    openai_client = None
+    return key
+
+
+def run_doctor() -> int:
+    checks: List[tuple[str, bool, str]] = []
+
+    py_ok = sys.version_info >= (3, 10)
+    checks.append(("Python >= 3.10", py_ok, platform.python_version()))
+
+    openai_pkg = shutil.which("python3") is not None
+    try:
+        import openai  # type: ignore  # noqa: F401
+        openai_pkg = True
+    except Exception:
+        openai_pkg = False
+    checks.append(("openai package installed", openai_pkg, "required for agent execution"))
+
+    has_key = bool(load_api_keys().get("openai"))
+    checks.append(("OPENAI_API_KEY configured", has_key, "use `uxarion --addKey`"))
+
+    for tool in ("curl", "openssl", "dig"):
+        present = shutil.which(tool) is not None
+        checks.append((f"tool `{tool}` available", present, "optional but recommended"))
+
+    print("Uxarion Doctor")
+    print("--------------")
+    for label, ok, detail in checks:
+        status = _color("OK", Fore.GREEN) if ok else _color("MISSING", Fore.RED)
+        print(f"[{status}] {label}  ({detail})")
+
+    critical_failures = [item for item in checks if not item[1] and item[0] in {"Python >= 3.10", "openai package installed", "OPENAI_API_KEY configured"}]
+    if critical_failures:
+        print("\nSetup incomplete. Fix the missing critical items above.")
+        return 1
+    print("\nSetup looks good.")
+    return 0
 
 
 def get_openai_client():
@@ -383,16 +537,6 @@ def get_openai_client():
 
         openai_client = OpenAI(api_key=keys["openai"])
     return openai_client
-
-
-def get_gemini_key() -> str:
-    global gemini_api_key
-    if gemini_api_key is None:
-        keys = load_api_keys()
-        if "gemini" not in keys:
-            raise RuntimeError("GEMINI_API_KEY not configured")
-        gemini_api_key = keys["gemini"]
-    return gemini_api_key
 
 
 # ----------------------------------------------------------------------------
@@ -429,6 +573,28 @@ def _suggest_timeout_for(cmd: str) -> int:
     }[category]
 
 
+def _should_prefix_stdbuf(command: str, tool_name: str, *, has_stdbuf: bool) -> bool:
+    if not has_stdbuf:
+        return False
+    if not tool_name or tool_name in SHELL_BUILTINS:
+        return False
+
+    stripped = (command or "").lstrip()
+    if not stripped:
+        return False
+    if stripped[0] in "({[":
+        return False
+
+    # Prefixing `stdbuf` in front of compound shell statements can break syntax.
+    if any(token in stripped for token in (";", "&&", "||", "\n")):
+        return False
+
+    first = first_tool(stripped)
+    if first in {"for", "while", "if", "case", "until", "select", "function"}:
+        return False
+    return True
+
+
 # ----------------------------------------------------------------------------
 # AI helpers – chat JSON / text with hardening
 # ----------------------------------------------------------------------------
@@ -436,36 +602,83 @@ def _suggest_timeout_for(cmd: str) -> int:
 
 def chat_json_openai(system: str, payload: Dict[str, Any], model: str = OPENAI_MODEL) -> Dict[str, Any]:
     client = get_openai_client()
+    user_payload = json.dumps(payload, indent=2)
+    reasoning_effort = OPENAI_REASONING_EFFORT.strip().lower() or "high"
+    if reasoning_effort not in {"none", "low", "medium", "high", "xhigh"}:
+        reasoning_effort = "high"
     try:
-        resp = client.chat.completions.create(
+        resp = client.responses.create(
             model=model,
-            response_format={"type": "json_object"},
-            messages=[
+            input=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(payload, indent=2)},
+                {"role": "user", "content": user_payload},
             ],
+            max_output_tokens=2000,
+            reasoning={"effort": reasoning_effort},
+            text={
+                "verbosity": "low",
+                "format": {"type": "json_object"},
+            },
             timeout=30,
         )
+        content = (getattr(resp, "output_text", "") or "").strip()
+        if not content:
+            raise RuntimeError("OpenAI JSON response was empty")
+        return json.loads(_clean_json_candidate(content))
     except Exception as exc:
-        raise RuntimeError(f"OpenAI JSON completion failed: {exc}") from exc
-    content = resp.choices[0].message.content or "{}"
-    return json.loads(content)
+        # Compatibility fallback for older SDK/runtime behavior.
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_payload},
+                ],
+                timeout=30,
+            )
+            content = resp.choices[0].message.content or "{}"
+            return json.loads(_clean_json_candidate(content))
+        except Exception as fallback_exc:
+            raise RuntimeError(f"OpenAI JSON completion failed: {fallback_exc}") from exc
 
 
 def chat_text_openai(system: str, payload: Dict[str, Any], model: str = OPENAI_MODEL) -> str:
     client = get_openai_client()
+    user_payload = json.dumps(payload, indent=2)
+    reasoning_effort = OPENAI_REASONING_EFFORT.strip().lower() or "high"
+    if reasoning_effort not in {"none", "low", "medium", "high", "xhigh"}:
+        reasoning_effort = "high"
     try:
-        resp = client.chat.completions.create(
+        resp = client.responses.create(
             model=model,
-            messages=[
+            input=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(payload, indent=2)},
+                {"role": "user", "content": user_payload},
             ],
+            max_output_tokens=2200,
+            reasoning={"effort": reasoning_effort},
+            text={"verbosity": "low"},
             timeout=30,
         )
+        content = getattr(resp, "output_text", "") or ""
+        if content.strip():
+            return content
+        raise RuntimeError("OpenAI text response was empty")
     except Exception as exc:
-        raise RuntimeError(f"OpenAI text completion failed: {exc}") from exc
-    return resp.choices[0].message.content or ""
+        # Compatibility fallback for older SDK/runtime behavior.
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_payload},
+                ],
+                timeout=30,
+            )
+            return resp.choices[0].message.content or ""
+        except Exception as fallback_exc:
+            raise RuntimeError(f"OpenAI text completion failed: {fallback_exc}") from exc
 
 
 def _clean_json_candidate(raw: str) -> str:
@@ -479,87 +692,6 @@ def _clean_json_candidate(raw: str) -> str:
     return text.strip()
 
 
-def chat_json_gemini(system: str, payload: Dict[str, Any], model: str = GEMINI_MODEL) -> Dict[str, Any]:
-    api_key = get_gemini_key()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    prompt = (
-        f"{system}\n\nContext:\n{json.dumps(payload, indent=2)}\n"
-        "Respond with a single JSON object matching the schema."
-    )
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 4000,
-            "responseMimeType": "application/json",
-        },
-    }
-
-    last_error: Optional[Exception] = None
-    for attempt in range(3):
-        try:
-            response = requests.post(url, json=body, timeout=60)
-            response.raise_for_status()
-            data = response.json()
-            candidates = data.get("candidates", [])
-            if not candidates:
-                raise RuntimeError(f"Gemini returned no candidates: {data}")
-            content = candidates[0]["content"]["parts"][0]["text"]
-            cleaned = _clean_json_candidate(content)
-            try:
-                parsed = json.loads(cleaned)
-            except json.JSONDecodeError:
-                # Balanced brace fallback
-                start = cleaned.find("{")
-                if start == -1:
-                    raise
-                depth = 0
-                end = None
-                for idx, char in enumerate(cleaned[start:], start=start):
-                    if char == "{":
-                        depth += 1
-                    elif char == "}":
-                        depth -= 1
-                        if depth == 0:
-                            end = idx + 1
-                            break
-                if end is None:
-                    raise
-                parsed = json.loads(cleaned[start:end])
-            if isinstance(parsed, list):
-                if not parsed:
-                    raise RuntimeError("Gemini returned empty list")
-                parsed = parsed[0]
-            if not isinstance(parsed, dict):
-                raise RuntimeError("Gemini response was not a JSON object")
-            return parsed
-        except Exception as err:  # noqa: PERF203
-            last_error = err
-            time.sleep(1)
-    raise RuntimeError(f"Gemini JSON request failed: {last_error}")
-
-
-def chat_text_gemini(system: str, payload: Dict[str, Any], model: str = GEMINI_MODEL) -> str:
-    api_key = get_gemini_key()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    prompt = f"{system}\n\nInput:\n{json.dumps(payload, indent=2)}\nRespond in plain text."
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 3000,
-            "responseMimeType": "text/plain",
-        },
-    }
-    response = requests.post(url, json=body, timeout=60)
-    response.raise_for_status()
-    data = response.json()
-    candidates = data.get("candidates", [])
-    if not candidates:
-        return "No response"
-    return candidates[0]["content"]["parts"][0]["text"]
-
-
 def chat_json(
     system: str,
     payload: Dict[str, Any],
@@ -568,14 +700,13 @@ def chat_json(
     retries: int = 10,
     backoff_seconds: float = 1.0,
 ) -> Dict[str, Any]:
+    normalized_provider = (provider or DEFAULT_PROVIDER).strip().lower()
+    if normalized_provider != DEFAULT_PROVIDER:
+        raise RuntimeError(f"Unsupported provider '{provider}'. Only '{DEFAULT_PROVIDER}' is available.")
     last_error: Optional[Exception] = None
     for attempt in range(1, retries + 1):
         try:
-            if provider == "openai":
-                return chat_json_openai(system, payload)
-            if provider == "gemini":
-                return chat_json_gemini(system, payload)
-            raise RuntimeError(f"Unknown provider {provider}")
+            return chat_json_openai(system, payload)
         except Exception as exc:  # noqa: PERF203
             last_error = exc
             if attempt == retries:
@@ -587,37 +718,118 @@ def chat_json(
 
 
 def chat_text(system: str, payload: Dict[str, Any], provider: str = DEFAULT_PROVIDER) -> str:
-    if provider == "openai":
-        return chat_text_openai(system, payload)
-    if provider == "gemini":
-        return chat_text_gemini(system, payload)
-    raise RuntimeError(f"Unknown provider {provider}")
+    normalized_provider = (provider or DEFAULT_PROVIDER).strip().lower()
+    if normalized_provider != DEFAULT_PROVIDER:
+        raise RuntimeError(f"Unsupported provider '{provider}'. Only '{DEFAULT_PROVIDER}' is available.")
+    return chat_text_openai(system, payload)
 
 
 # ----------------------------------------------------------------------------
-# Alignment, fallback, compression
+# Context compression helpers
 # ----------------------------------------------------------------------------
 
-ALIGN_INTENT_PROMPT = (
-    "Rewrite the user's request into one concise paragraph describing goal, scope,"
-    " targets, and constraints for an authorized penetration test."
-    " Respond with JSON {\"intent_paragraph\": str, \"assumptions\": [str],"
-    " \"derived_targets\": [str]} only."
-)
+MAX_CONTEXT_NOTE_LEN = 180
+MAX_CONTEXT_NOTES = 24
+MAX_OUTPUT_FOR_CONTEXT = 2800
+MAX_LAST_OUTPUT_FOR_DECISION = 1800
+_DELIVERABLE_TOKEN_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "into",
+    "onto",
+    "that",
+    "this",
+    "http",
+    "https",
+    "www",
+    "com",
+    "org",
+    "net",
+    "dev",
+    "app",
+    "io",
+}
+_DELIVERABLE_TOKEN_CANONICAL = {
+    "cert": "certificate",
+    "certs": "certificate",
+    "certificates": "certificate",
+    "headers": "header",
+    "records": "record",
+    "titles": "title",
+    "statuses": "status",
+    "details": "detail",
+    "basics": "detail",
+}
 
 
-def align_intent_paragraph(user_prompt: str, provider: str) -> Dict[str, Any]:
-    try:
-        result = chat_json(ALIGN_INTENT_PROMPT, {"user_request": user_prompt}, provider)
-        return {
-            "intent_paragraph": result.get("intent_paragraph", user_prompt.strip()),
-            "assumptions": result.get("assumptions", []),
-            "derived_targets": result.get("derived_targets", []),
-        }
-    except Exception as exc:
-        raise RuntimeError(
-            "Intent alignment failed; ensure internet connectivity and a valid provider configuration."
-        ) from exc
+def _normalize_short_line(value: str, *, limit: int = MAX_CONTEXT_NOTE_LEN) -> str:
+    compact = re.sub(r"\s+", " ", (value or "")).strip()
+    if not compact:
+        return ""
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 1].rstrip() + "…"
+
+
+def _append_unique_short_lines(target: List[str], candidates: List[str], *, limit: int) -> None:
+    for item in candidates:
+        normalized = _normalize_short_line(item)
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if any(existing.lower() == lowered for existing in target):
+            continue
+        target.append(normalized)
+    if len(target) > limit:
+        del target[:-limit]
+
+
+def _trim_output(value: str, *, limit: int) -> str:
+    text = (value or "").strip()
+    if len(text) <= limit:
+        return text
+    head = int(limit * 0.7)
+    tail = max(0, limit - head - 32)
+    return f"{text[:head].rstrip()}\n\n... (truncated) ...\n\n{text[-tail:].lstrip()}"
+
+
+def _deliverable_tokens(value: str) -> Set[str]:
+    tokens = re.findall(r"[a-z0-9]{3,}", (value or "").lower())
+    normalized: Set[str] = set()
+    for token in tokens:
+        canonical = _DELIVERABLE_TOKEN_CANONICAL.get(token, token)
+        if canonical in _DELIVERABLE_TOKEN_STOPWORDS:
+            continue
+        normalized.add(canonical)
+    return normalized
+
+
+def _deliverables_match(candidate: str, resolved: str) -> bool:
+    left = _normalize_short_line(candidate, limit=300).lower()
+    right = _normalize_short_line(resolved, limit=300).lower()
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+
+    left_tokens = _deliverable_tokens(left)
+    right_tokens = _deliverable_tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+
+    overlap = left_tokens & right_tokens
+    if len(overlap) < 2:
+        return False
+    if left_tokens.issubset(right_tokens) or right_tokens.issubset(left_tokens):
+        return True
+    overlap_ratio_left = len(overlap) / len(left_tokens)
+    overlap_ratio_right = len(overlap) / len(right_tokens)
+    if overlap_ratio_left >= 0.5 and overlap_ratio_right >= 0.5:
+        return True
+    return len(overlap) >= 3 and (overlap_ratio_left >= 0.5 or overlap_ratio_right >= 0.5)
 
 
 def summarize_for_report(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -635,39 +847,6 @@ def summarize_for_report(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             }
         )
     return summary
-
-
-def _history_excerpt(history: List[Dict[str, Any]], limit: int = 6) -> str:
-    lines: List[str] = []
-    for item in reversed(history[-limit:]):
-        obs = item.get("observation", {})
-        cmd = (obs.get("command") or item.get("command") or "").strip()
-        rc = obs.get("returncode")
-        note = ""
-        termination = obs.get("termination_reason")
-        if termination == "dry-run":
-            note = "dry-run"
-        elif item.get("validator", {}).get("ok") is False:
-            reason = item.get("validator", {}).get("reason", "")
-            note = f"rejected: {reason}".strip()
-        elif obs.get("tool_info", {}).get("present") is False:
-            path_hint = obs.get("tool_info", {}).get("path", "")
-            note = f"tool_not_found: {path_hint}".strip()
-        else:
-            output_text = obs.get("output") or ""
-            for line in output_text.splitlines():
-                stripped = line.strip()
-                if stripped:
-                    note = stripped[:120]
-                    break
-        if note:
-            if len(note) > 120:
-                note = note[:117] + "…"
-            lines.append(f"- {cmd} :: rc={rc} :: {note}")
-        else:
-            lines.append(f"- {cmd} :: rc={rc}")
-    return "\n".join(lines) if lines else "(none)"
-
 
 def detect_header_vulns(command: str, output: str, *, scheme: str = "http") -> Optional[List[str]]:
     lowered_cmd = command.lower()
@@ -788,42 +967,108 @@ def command_signature(cmd: str) -> str:
 # Agent implementation
 # ----------------------------------------------------------------------------
 
-DECISION_PROMPT = """You are an autonomous penetration tester.
-Reply ONLY with a JSON object matching:
+DIRECT_EXECUTION_PROMPT = """You are an autonomous security assistant and penetration-testing executor.
+The user task is authoritative and must be handled verbatim.
+
+Reply ONLY with JSON in one of these shapes:
+1) Continue:
 {{
   "stop": false,
-  "reason": "<why this step>",
-  "command": "<single non-interactive shell command>"
+  "reason": "<why this action advances the task>",
+  "command": "<single shell command to execute now>"
+}}
+2) Complete:
+{{
+  "stop": true,
+  "reason": "<why the task is complete or blocked>",
+  "final_reply": "<final plain-text answer for the user>"
 }}
 
-Context - mission and evidence:
-- Objective: {user_intent}
-- Target hints: {target_hints}
-- Recent activity (newest first): {history_excerpt}
-- Available tools detected: {tools_hint}
+User_task_verbatim:
+{user_task}
 
-Engagement doctrine:
-1. Start with lightweight reconnaissance (e.g., curl/httpie/banner grabs) before launching intrusive scans.
-2. Progress through phases: recon -> enumerate surface -> probe for vulns -> verify/exploit -> report. Reference prior evidence before escalating.
-3. Never repeat the same command signature unless parameters meaningfully change.
-4. One shell command only; no control operators (; && ||), no subshells (`...` or $(...)). At most one pipe to grep/awk/sed/cut/head/tail/tee.
-5. Prefer read-only techniques unless evidence justifies deeper testing. Note justification in "reason".
-6. Tools must operate on in-scope hosts/URLs derived from the context above; use actual hostnames from scope/intent (no placeholders like example.com or <target>).
-7. Move beyond repeated curl header checks after initial recon; use appropriate tools from the available list for DNS/TLS/service profiling (e.g., nslookup/host, openssl s_client, nmap ssl-enum-ciphers, whatweb/nikto if present).
-8. If you intend to stop, respond with {{"stop": true, "reason": "<summary>"}} and omit "command".
+Available_tools:
+{tools_hint}
+
+Context_memory (high-value notes from prior steps):
+{context_memory}
+
+Deliverables_state:
+{deliverables_state}
+
+Recent_step_briefs (newest first):
+{recent_step_briefs}
+
+Last_command_result:
+{last_command_result}
+
+Last_command_output (raw, only latest command):
+{last_command_output}
+
+Terminal_capabilities:
+{terminal_capabilities}
+
+Timeout_seconds:
+{timeout_seconds}
+
+Rules:
+1. Return exactly one command when stop=false.
+2. Base the next action on Last_command_result, Last_command_output, and Context_memory.
+3. Do not stop until requested deliverables are completed with evidence or explicitly blocked with reason.
+4. Do not ask again for target/input if it already exists in task or context.
+5. Keep commands non-interactive and fully specified.
+6. If a deliverable is already completed in Deliverables_state, do not run the same deliverable again unless prior evidence is invalid/conflicting.
+7. Keep output bounded and focused. Prefer compact evidence extraction (headers/status/selected lines) over full document dumps.
+8. Use POSIX-compatible shell syntax; avoid placeholders.
+9. Prefer atomic commands that target one deliverable at a time; avoid long nested-quote scripts unless unavoidable.
+10. If the user input is a plain question, greeting, explanation request, or planning request that does not require running shell commands, return stop=true immediately with a direct final_reply.
+11. For command-based security tasks, final_reply should be concise, practical, and grounded in observed evidence.
+12. Do not mention internal orchestration, loop state, hidden memory, or schema rules.
 
 Return valid JSON only."""
 
-REPORT_PROMPT = """Create a brief, plain-text penetration test summary with findings, notable evidence, and next steps.
-Tone: professional, actionable, 3-5 sentences."""
+STEP_CONTEXT_PROMPT = """You compress one command result into high-value memory for an autonomous pentest loop.
+Return JSON only with this schema:
+{{
+  "step_summary": "<one concise sentence>",
+  "valuable_observations": ["<short fact from output>"],
+  "completed_deliverables": ["<task-level deliverable now done>"],
+  "blocked_deliverables": ["<task-level deliverable blocked and why>"],
+  "next_focus": ["<task-level deliverable still needed next>"]
+}}
+
+Rules:
+- Ground every statement in provided output/result only; no speculation.
+- Keep each string under 180 chars.
+- Prefer concrete evidence (status codes, headers, cert facts, DNS, discovered endpoints).
+- Do not copy long output; summarize into compact facts.
+- Use stable task-level phrasing (for example: DNS records, TLS details, HTTP headers, robots, sitemap, tech fingerprinting, exposed ports).
+- next_focus must include only unresolved tasks and must NOT repeat anything already in deliverables_state.completed or deliverables_state.blocked.
+- Do not output generic items like "command ran" or "step completed".
+- If output is empty/uninformative, return empty arrays and a short step_summary."""
+
+REPORT_PROMPT = """Create a concise plain-text penetration test summary grounded in observed evidence.
+If execution was partial, explicitly separate completed checks and blocked/failed checks.
+Include key findings, risk interpretation, limitations, and next safe validation steps."""
+
+DIRECT_REPLY_PROMPT = """You are Uxarion, a concise assistant inside a terminal chat.
+Respond directly to the user's message as plain text.
+
+Rules:
+- Keep the answer useful and concise.
+- Do not mention internal execution loops, reports, or hidden system state.
+- If the user asks for a security action that needs a target/scope but none is provided, ask briefly for the missing target/scope/authorization details.
+- Do not use emojis unless explicitly requested by the user."""
 
 
 class Agent:
     def __init__(self, policy: Policy, provider: str = DEFAULT_PROVIDER):
+        normalized_provider = (provider or DEFAULT_PROVIDER).strip().lower()
+        if normalized_provider != DEFAULT_PROVIDER:
+            raise ValueError(f"Unsupported provider '{provider}'. Only '{DEFAULT_PROVIDER}' is available.")
         self.policy = policy
-        self.provider = provider
+        self.provider = DEFAULT_PROVIDER
         self.memory = Memory()
-        self.tool_cache: Dict[str, Dict[str, Any]] = {}
 
     def _push_event(
         self,
@@ -893,41 +1138,209 @@ class Agent:
         return result
 
     # ------------------------------------------------------------------
-    def _request_decision_freeform(
-        self, user_intent: str, target_hints: str, tools_hint: str
+    @staticmethod
+    def _context_text(value: Any) -> str:
+        if value in (None, "", [], {}):
+            return "(none)"
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False)
+
+    def _deliverables_state(self) -> Dict[str, List[str]]:
+        return {
+            "completed": self.memory.completed_deliverables[-10:],
+            "blocked": self.memory.blocked_deliverables[-10:],
+            "next_focus": self.memory.next_focus[-10:],
+        }
+
+    def _context_memory_text(self) -> str:
+        notes = self.memory.context_notes[-MAX_CONTEXT_NOTES:]
+        if not notes:
+            return "(none)"
+        return "\n".join(f"- {item}" for item in notes)
+
+    def _recent_step_briefs(self, limit: int = 8) -> str:
+        lines: List[str] = []
+        for entry in reversed(self.memory.history[-limit:]):
+            observation = entry.get("observation", {}) or {}
+            command = (observation.get("command") or "").strip()
+            if not command:
+                continue
+            summary = (entry.get("context_memory", {}) or {}).get("step_summary") or ""
+            if not summary:
+                if observation.get("returncode") is None:
+                    summary = observation.get("termination_reason") or "no result"
+                else:
+                    summary = f"rc={observation.get('returncode')}"
+            summary = _normalize_short_line(summary, limit=140) or "no summary"
+            lines.append(f"- {command} :: {summary}")
+        return "\n".join(lines) if lines else "(none)"
+
+    def _last_command_result(self) -> Dict[str, Any]:
+        if not self.memory.history:
+            return {"status": "no previous command"}
+        entry = self.memory.history[-1]
+        observation = entry.get("observation", {}) or {}
+        step_context = entry.get("context_memory", {}) or {}
+        return {
+            "step": entry.get("step"),
+            "command": observation.get("command"),
+            "returncode": observation.get("returncode"),
+            "termination_reason": observation.get("termination_reason"),
+            "duration_seconds": observation.get("duration"),
+            "step_summary": step_context.get("step_summary", ""),
+            "evidence": (observation.get("evidence") or [])[:6],
+        }
+
+    def _last_command_output(self) -> str:
+        if not self.memory.history:
+            return "(none)"
+        output = (self.memory.history[-1].get("observation", {}) or {}).get("output", "")
+        compact = _trim_output(output, limit=MAX_LAST_OUTPUT_FOR_DECISION)
+        return compact or "(none)"
+
+    def _request_decision_direct(
+        self,
+        user_task: str,
+        tools_hint: str = "",
+        *,
+        terminal_capabilities: Optional[Dict[str, Any]] = None,
+        timeout_seconds: Optional[int] = None,
     ) -> Dict[str, Any]:
-        prompt = DECISION_PROMPT.format(
-            user_intent=user_intent.strip(),
-            target_hints=target_hints.strip() or "(none)",
-            history_excerpt=_history_excerpt(self.memory.history),
+        prompt = DIRECT_EXECUTION_PROMPT.format(
+            user_task=user_task.rstrip(),
             tools_hint=tools_hint or "none detected",
+            context_memory=self._context_memory_text(),
+            deliverables_state=self._context_text(self._deliverables_state()),
+            recent_step_briefs=self._recent_step_briefs(),
+            last_command_result=self._context_text(self._last_command_result()),
+            last_command_output=self._last_command_output(),
+            terminal_capabilities=self._context_text(terminal_capabilities),
+            timeout_seconds=self._context_text(timeout_seconds),
         )
         return chat_json(prompt, {}, self.provider)
 
-    def _ensure_tool_info(self, tool: str) -> Dict[str, Any]:
-        if not tool:
-            return {}
-        if tool not in self.tool_cache:
-            info: Dict[str, Any] = {"present": False}
-            path = shutil.which(tool)
-            if path:
-                info["present"] = True
-                info["path"] = path
-                try:
-                    proc = subprocess.run(
-                        [tool, "--version"],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        timeout=2,
-                    )
-                    version_output = (proc.stdout or "").strip()
-                    if version_output:
-                        info["version"] = version_output.splitlines()[0][:200]
-                except Exception:
-                    pass
-            self.tool_cache[tool] = info
-        return self.tool_cache[tool]
+    def _fallback_step_context(self, observation: Dict[str, Any]) -> Dict[str, Any]:
+        output = observation.get("output", "") or ""
+        evidence = extract_evidence(output, max_lines=4)
+        rc = observation.get("returncode")
+        status_line = f"Command completed with rc={rc}" if rc is not None else "Command completed"
+        if observation.get("termination_reason") and observation.get("termination_reason") != "completed":
+            status_line = f"{status_line} ({observation.get('termination_reason')})"
+        completed: List[str] = []
+        blocked: List[str] = []
+        if rc == 0:
+            completed.append(status_line)
+        elif rc is not None:
+            blocked.append(status_line)
+        return {
+            "step_summary": evidence[0] if evidence else status_line,
+            "valuable_observations": evidence[:3],
+            "completed_deliverables": completed,
+            "blocked_deliverables": blocked,
+            "next_focus": [],
+        }
+
+    def _summarize_step_context(
+        self,
+        *,
+        user_task: str,
+        reason_text: str,
+        observation: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        payload = {
+            "user_task": user_task,
+            "reason_for_command": reason_text,
+            "command": observation.get("command", ""),
+            "returncode": observation.get("returncode"),
+            "termination_reason": observation.get("termination_reason"),
+            "duration_seconds": observation.get("duration"),
+            "output": _trim_output(observation.get("output", ""), limit=MAX_OUTPUT_FOR_CONTEXT),
+            "current_context_notes": self.memory.context_notes[-10:],
+            "deliverables_state": self._deliverables_state(),
+        }
+        try:
+            raw = chat_json(
+                STEP_CONTEXT_PROMPT,
+                payload,
+                self.provider,
+                retries=3,
+                backoff_seconds=0.5,
+            )
+        except Exception:
+            return self._fallback_step_context(observation)
+
+        if not isinstance(raw, dict):
+            return self._fallback_step_context(observation)
+
+        def _collect(key: str, *, cap: int = 8) -> List[str]:
+            values = raw.get(key, [])
+            if not isinstance(values, list):
+                return []
+            cleaned: List[str] = []
+            for value in values:
+                if not isinstance(value, str):
+                    continue
+                normalized = _normalize_short_line(value)
+                if normalized:
+                    cleaned.append(normalized)
+                if len(cleaned) >= cap:
+                    break
+            return cleaned
+
+        step_summary = _normalize_short_line(str(raw.get("step_summary", ""))) or ""
+        parsed = {
+            "step_summary": step_summary,
+            "valuable_observations": _collect("valuable_observations"),
+            "completed_deliverables": _collect("completed_deliverables"),
+            "blocked_deliverables": _collect("blocked_deliverables"),
+            "next_focus": _collect("next_focus"),
+        }
+        if not parsed["step_summary"] and parsed["valuable_observations"]:
+            parsed["step_summary"] = parsed["valuable_observations"][0]
+        if not parsed["step_summary"]:
+            fallback = self._fallback_step_context(observation)
+            parsed["step_summary"] = fallback["step_summary"]
+            if not parsed["valuable_observations"]:
+                parsed["valuable_observations"] = fallback["valuable_observations"]
+        return parsed
+
+    def _apply_step_context(self, step_context: Dict[str, Any]) -> None:
+        summary = step_context.get("step_summary")
+        if isinstance(summary, str) and summary.strip():
+            _append_unique_short_lines(self.memory.context_notes, [summary], limit=MAX_CONTEXT_NOTES)
+        _append_unique_short_lines(
+            self.memory.context_notes,
+            [item for item in step_context.get("valuable_observations", []) if isinstance(item, str)],
+            limit=MAX_CONTEXT_NOTES,
+        )
+        _append_unique_short_lines(
+            self.memory.completed_deliverables,
+            [item for item in step_context.get("completed_deliverables", []) if isinstance(item, str)],
+            limit=24,
+        )
+        _append_unique_short_lines(
+            self.memory.blocked_deliverables,
+            [item for item in step_context.get("blocked_deliverables", []) if isinstance(item, str)],
+            limit=24,
+        )
+        _append_unique_short_lines(
+            self.memory.next_focus,
+            [item for item in step_context.get("next_focus", []) if isinstance(item, str)],
+            limit=24,
+        )
+        resolved = [
+            item
+            for item in (self.memory.completed_deliverables + self.memory.blocked_deliverables)
+            if isinstance(item, str) and item.strip()
+        ]
+        if resolved and self.memory.next_focus:
+            filtered_focus: List[str] = []
+            for item in self.memory.next_focus:
+                if any(_deliverables_match(item, done_item) for done_item in resolved):
+                    continue
+                filtered_focus.append(item)
+            self.memory.next_focus = filtered_focus[-24:]
 
     # ------------------------------------------------------------------
     def _generate_report(self, intent_paragraph: str, execution_mode: str) -> str:
@@ -956,6 +1369,13 @@ class Agent:
             raise RuntimeError("Report generation returned an empty response.")
         return report_text.strip()
 
+    def _generate_direct_reply(self, user_text: str) -> str:
+        payload = {"user_text": user_text}
+        reply = chat_text(DIRECT_REPLY_PROMPT, payload, self.provider)
+        if not reply:
+            raise RuntimeError("Direct reply generation returned an empty response.")
+        return reply.strip()
+
     # ------------------------------------------------------------------
     def run(
         self,
@@ -969,65 +1389,58 @@ class Agent:
         exit_on_first_finding: bool = False,
         report_out_path: Optional[str] = None,
         validate: bool = True,
+        loop_mode: Optional[str] = None,
         event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         run_id = uuid.uuid4().hex
         self.run_id = run_id
-        alignment = align_intent_paragraph(user_prompt, self.provider)
-        intent_paragraph = alignment.get("intent_paragraph") or user_prompt.strip()
+        active_loop_mode = normalize_loop_mode(loop_mode, default=getattr(self.policy, "loop_mode", LOOP_MODE_DIRECT))
+        self.memory = Memory()
+        intent_paragraph = user_prompt.strip()
         emit_console = event_callback is None
         if emit_console:
             print(f"\n🎯 Intent: {intent_paragraph}\n")
+            print("⚙️ Loop mode: direct (verbatim task executor)\n")
         self._push_event(
             event_callback,
             {
                 "type": "intent",
                 "run_id": run_id,
                 "intent": intent_paragraph,
-                "assumptions": alignment.get("assumptions", []),
-                "derived_targets": alignment.get("derived_targets", []),
+                "assumptions": [],
+                "derived_targets": [],
+                "loop_mode": active_loop_mode,
             },
         )
-
-        target_hints_list = alignment.get("derived_targets", [])
+        target_hints_list: List[str] = []
 
         start_time = time.time()
         step = 0
         hard_cap = max_commands if max_commands is not None else parse_max_commands(user_prompt)
         executed = 0
         stop_reason = "completed"
-        artifacts_root = os.environ.get("ZEVIONX_ARTIFACT_DIR") or os.environ.get("POWN_ARTIFACT_DIR")
+        artifacts_root = os.environ.get("UXARION_ARTIFACT_DIR") or os.environ.get("POWN_ARTIFACT_DIR")
         if artifacts_root:
             run_dir = os.path.abspath(os.path.join(artifacts_root, run_id))
         else:
-            run_dir = os.path.abspath(os.path.join(os.getcwd(), ".zevionx_runs", run_id))
+            run_dir = os.path.abspath(os.path.join(os.getcwd(), ".uxarion_runs", run_id))
         os.makedirs(run_dir, exist_ok=True)
         execution_cwd = os.getcwd()
 
-        MAX_PLANNER_RETRIES = 3
+        MAX_DECISION_RETRIES = 3
 
-        if scope_hosts:
-            scope_set = {host.strip() for host in scope_hosts if host.strip()}
-        else:
-            scope_set = set()
-        scope_cidrs_list = scope_cidrs or []
-
-        allowed_tools: Optional[Set[str]] = None
-        if allow_tools:
-            extras = {tool.strip() for tool in allow_tools if tool.strip()}
-            allowed_tools = extras or None
-
-        denied_tools = {tool.strip() for tool in deny_tools or set() if tool.strip()}
-        validate_commands = validate
+        _ = scope_hosts
+        _ = allow_tools
+        _ = deny_tools
+        _ = scope_cidrs
+        _ = validate
+        validate_commands = False
 
         has_stdbuf = shutil.which("stdbuf") is not None
 
-        attempted_commands: Set[str] = set()
-        planner_retries = 0
-        rejected_count = 0
-        duplicate_count = 0
+        decision_retries = 0
         user_intent_text = user_prompt.strip()
-        target_hint_text = "\n".join(str(t) for t in target_hints_list) if target_hints_list else "(none)"
+        final_reply: Optional[str] = None
 
         common_tools = [
             "curl",
@@ -1048,6 +1461,21 @@ class Agent:
         ]
         available_tools = [tool for tool in common_tools if shutil.which(tool)]
         tools_hint = ", ".join(available_tools) if available_tools else "none detected"
+        terminal_capabilities = {
+            "shell": "bash",
+            "cwd": execution_cwd,
+            "has_timeout_cmd": bool(shutil.which("timeout")),
+            "has_curl": bool(shutil.which("curl")),
+            "has_wget": bool(shutil.which("wget")),
+            "has_httpie": bool(shutil.which("http")),
+            "has_python": bool(shutil.which("python3") or shutil.which("python")),
+            "has_nmap": bool(shutil.which("nmap")),
+            "has_nslookup": bool(shutil.which("nslookup")),
+            "has_host": bool(shutil.which("host")),
+            "has_dig": bool(shutil.which("dig")),
+            "available_tools": available_tools,
+        }
+        timeout_seconds_context: Optional[int] = None if self.policy.no_command_timeouts else DEFAULT_TIMEOUT_S
 
         while True:
             if WALL_CLOCK_LIMIT_S and time.time() - start_time > WALL_CLOCK_LIMIT_S:
@@ -1059,38 +1487,46 @@ class Agent:
             step += 1
 
             try:
-                decision = self._request_decision_freeform(user_intent_text, target_hint_text, tools_hint)
+                decision = self._request_decision_direct(
+                    user_intent_text,
+                    tools_hint,
+                    terminal_capabilities=terminal_capabilities,
+                    timeout_seconds=timeout_seconds_context,
+                )
             except Exception as exc:
                 if emit_console:
                     print(f"error: decision request failed ({exc})")
-                stop_reason = "planner_failure"
+                stop_reason = "decision_failure"
                 break
 
             if "error" in decision:
                 if emit_console:
-                    print(f"error: planner response contained error ({decision['error']})")
-                stop_reason = "planner_error"
+                    print(f"error: decision response contained error ({decision['error']})")
+                stop_reason = "decision_error"
                 break
 
             schema_ok, schema_reason = validate_decision_schema(decision)
             if not schema_ok:
-                planner_retries += 1
-                if planner_retries > MAX_PLANNER_RETRIES:
+                decision_retries += 1
+                if decision_retries > MAX_DECISION_RETRIES:
                     if emit_console:
-                        print("error: planner retries exhausted")
-                    stop_reason = "planner_retry_exhausted"
+                        print("error: decision retries exhausted")
+                    stop_reason = "decision_retry_exhausted"
                     break
-                if planner_retries > 1:
+                if decision_retries > 1:
                     if emit_console:
-                        print(f"error: invalid planner response ({schema_reason})")
-                    stop_reason = "planner_invalid_json"
+                        print(f"error: invalid decision response ({schema_reason})")
+                    stop_reason = "decision_invalid_json"
                     break
                 if emit_console:
-                    print("error: invalid planner response; retrying")
+                    print("error: invalid decision response; retrying")
                 continue
 
             if bool(decision.get("stop")):
-                stop_reason = decision.get("reason") or "planner_stop"
+                stop_reason = decision.get("reason") or "decision_stop"
+                candidate_reply = decision.get("final_reply")
+                if isinstance(candidate_reply, str) and candidate_reply.strip():
+                    final_reply = candidate_reply.strip()
                 break
 
             reason_text = (decision.get("reason") or "AI-generated command").strip()
@@ -1099,27 +1535,15 @@ class Agent:
 
             if not command:
                 if emit_console:
-                    print("error: planner returned empty command; retrying")
-                planner_retries += 1
-                if planner_retries > MAX_PLANNER_RETRIES:
+                    print("error: decision returned empty command; retrying")
+                decision_retries += 1
+                if decision_retries > MAX_DECISION_RETRIES:
                     if emit_console:
-                        print("error: planner retries exhausted")
-                    stop_reason = "planner_retry_exhausted"
+                        print("error: decision retries exhausted")
+                    stop_reason = "decision_retry_exhausted"
                     break
-                if planner_retries > 1:
-                    stop_reason = "planner_empty"
-                    break
-                continue
-
-            if command in attempted_commands:
-                duplicate_count += 1
-                planner_retries += 1
-                if emit_console:
-                    print("thinking: trying alternative (duplicate)")
-                if planner_retries > MAX_PLANNER_RETRIES:
-                    if emit_console:
-                        print("error: planner retries exhausted")
-                    stop_reason = "planner_retry_exhausted"
+                if decision_retries > 1:
+                    stop_reason = "decision_empty"
                     break
                 continue
 
@@ -1137,68 +1561,12 @@ class Agent:
 
             validator_record = {"ok": True, "reason": "validation disabled", "risk": 0.0}
             if validate_commands:
-                ok, why, meta = validate_freeform_command(
-                    command,
-                    scope_hosts=scope_set,
-                    allow_tools=allowed_tools,
-                    deny_tools=denied_tools,
-                )
-                validator_record = {"ok": ok, "reason": why, **meta}
-                if not ok:
-                    rejected_count += 1
-                    planner_retries += 1
-                    attempted_commands.add(command)
-                    rejection_entry = {
-                        "step": step,
-                        "phase": decision.get("phase", "free_form"),
-                        "analysis": reason_text,
-                        "decision": {"command": command, "reason": reason_text, "stop": False},
-                        "observation": {
-                            "command": command,
-                            "original_command": command,
-                            "returncode": None,
-                            "output": "",
-                            "termination_reason": "rejected",
-                        },
-                        "validator": validator_record,
-                        "source": "free_form",
-                    }
-                    self.memory.history.append(rejection_entry)
-                    self._push_event(
-                        event_callback,
-                        {
-                            "type": "rejected",
-                            "run_id": run_id,
-                            "step": step,
-                            "command": command,
-                            "reason": why,
-                            "validator": validator_record,
-                        },
-                    )
-                    if emit_console:
-                        print(f"rejected: {why}")
-                    reason_lower = why.lower()
-                    if "dangerous pattern" in reason_lower:
-                        if emit_console:
-                            print("thinking: trying alternative (unsafe shell)")
-                    else:
-                        if emit_console:
-                            print("thinking: trying alternative (invalid command)")
-                    if validator_record.get("missing_tool"):
-                        if emit_console:
-                            print(f"error: tool not found ({validator_record['missing_tool']})")
-                    if planner_retries > MAX_PLANNER_RETRIES:
-                        if emit_console:
-                            print("error: planner retries exhausted")
-                        stop_reason = "planner_retry_exhausted"
-                        break
-                    continue
-            else:
-                validator_record["reason"] = "validation disabled"
+                validator_record["reason"] = "validation disabled by direct execution loop"
 
             tool_name = validator_record.get("tool") or first_tool(command)
             if tool_name:
                 validator_record["tool"] = tool_name
+            use_stdbuf = _should_prefix_stdbuf(command, tool_name, has_stdbuf=has_stdbuf)
 
             effective_timeout, timeout_msg = self._resolve_timeout(command, timeout_hint)
 
@@ -1226,13 +1594,12 @@ class Agent:
                 reason_text,
                 effective_timeout=effective_timeout,
                 workdir=execution_cwd,
-                use_stdbuf=has_stdbuf,
+                use_stdbuf=use_stdbuf,
                 emit_console=emit_console,
                 line_callback=_line_event if event_callback else None,
             )
             executed += 1
-            planner_retries = 0
-            attempted_commands.add(command)
+            decision_retries = 0
 
             observation.setdefault("termination_reason", "completed")
             observation["phase"] = decision.get("phase", "free_form")
@@ -1265,12 +1632,21 @@ class Agent:
             else:
                 observation["evidence"] = []
 
+            step_context = self._summarize_step_context(
+                user_task=user_intent_text,
+                reason_text=reason_text,
+                observation=observation,
+            )
+            self._apply_step_context(step_context)
+            observation["context_summary"] = step_context
+
             entry = {
                 "step": step,
                 "phase": decision.get("phase", "free_form"),
                 "analysis": reason_text,
                 "decision": decision,
                 "observation": observation,
+                "context_memory": step_context,
                 "validator": validator_record,
                 "timeout_message": timeout_msg,
                 "run_id": run_id,
@@ -1297,6 +1673,7 @@ class Agent:
                             "execution_mode": "dry-run"
                             if observation.get("termination_reason") == "dry-run"
                             else "live",
+                            "loop_mode": active_loop_mode,
                             "targets": target_hints_list,
                             "run_id": run_id,
                         }
@@ -1307,8 +1684,8 @@ class Agent:
                     if emit_console:
                         print(f"⚠️ JSONL write failed: {exc}")
 
-            if should_finish(decision, observation):
-                stop_reason = decision.get("reason") or "planner_stop"
+            if exit_on_first_finding and self.memory.discovered_vulns:
+                stop_reason = "first finding observed"
                 break
             if hard_cap is not None and executed >= hard_cap:
                 if emit_console:
@@ -1322,7 +1699,12 @@ class Agent:
         )
         execution_mode = "live" if live_seen else "dry-run"
 
-        report = self._generate_report(intent_paragraph, execution_mode)
+        if final_reply:
+            report = final_reply
+        elif not self.memory.history:
+            report = self._generate_direct_reply(intent_paragraph)
+        else:
+            report = self._generate_report(intent_paragraph, execution_mode)
         self._push_event(
             event_callback,
             {
@@ -1332,7 +1714,7 @@ class Agent:
                 "report": report,
             },
         )
-        report_path = os.path.join(run_dir, "report.md")
+        report_path = os.path.abspath(report_out_path) if report_out_path else os.path.join(run_dir, "report.md")
         saved_paths: List[str] = []
         try:
             with open(report_path, "w", encoding="utf-8") as handle:
@@ -1347,11 +1729,16 @@ class Agent:
         result = {
             "history": self.memory.history,
             "discovered_vulnerabilities": self.memory.discovered_vulns,
+            "context_notes": self.memory.context_notes,
+            "completed_deliverables": self.memory.completed_deliverables,
+            "blocked_deliverables": self.memory.blocked_deliverables,
+            "next_focus": self.memory.next_focus,
             "report": report,
             "stop_reason": stop_reason,
             "schema_version": SCHEMA_VERSION,
             "provider": self.provider,
             "execution_mode": execution_mode,
+            "loop_mode": active_loop_mode,
             "targets": target_hints_list,
             "verbosity": self.policy.verbosity,
             "run_id": run_id,
@@ -1509,14 +1896,14 @@ class CLIEventPrinter:
 
 def print_banner() -> None:
     banner_lines = [
-        "                     Zevionx CLI",
+        "                     Uxarion CLI",
         "",
     ]
     builder_line = "I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊"
     contacts_line = "X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad"
-    mission_line = "Zevionx is an AI pentesting copilot, open-source for the pentesting community."
-    quick_actions_line = "Tip: press '/' in chat to update API keys via the quick actions menu."
-    website_line = "Official site: https://zevionx.com/"
+    mission_line = "Uxarion is an AI pentesting copilot, open-source for the pentesting community."
+    quick_actions_line = "Tip: press '/' or run /addkey in chat to update API keys."
+    website_line = "Official site: https://uxarion.com/"
 
     console = Console() if RICH_AVAILABLE else None
 
@@ -1544,17 +1931,39 @@ def print_banner() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Zevionx AI Pentesting Agent",
+        description="Uxarion AI Pentesting Agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python zevionx_cli.py --prompt "Scan http://localhost:8080 with nmap"
-  python zevionx_cli.py --prompt "Enumerate directories on https://target.example"
+  uxarion --addKey
+  uxarion --doctor
+  uxarion --addKey sk-...
+  uxarion --prompt "Scan http://localhost:8080 with nmap"
+  uxarion --prompt "Enumerate directories on https://target.example"
         """,
     )
-    parser.add_argument("--prompt", required=True, help="Pentesting objective or instructions")
+    parser.add_argument("--prompt", help="Pentesting objective or instructions")
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Run local environment checks and exit",
+    )
+    parser.add_argument(
+        "--addKey",
+        "--add-key",
+        dest="add_key",
+        nargs="?",
+        const="",
+        help="Set or replace OPENAI_API_KEY. Pass value directly or omit value for secure prompt.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print actions without executing shells")
-    parser.add_argument("--provider", choices=["gemini", "openai"], default=DEFAULT_PROVIDER)
+    parser.add_argument("--provider", choices=[DEFAULT_PROVIDER], default=DEFAULT_PROVIDER, help="AI backend")
+    parser.add_argument(
+        "--loop-mode",
+        choices=sorted(LOOP_MODES),
+        default=LOOP_MODE_DIRECT,
+        help="Execution loop style (direct only: verbatim task passthrough with iterative AI actions).",
+    )
     parser.add_argument("--max-commands", type=int, help="Stop after N executed commands")
     parser.add_argument(
         "--no-command-timeouts",
@@ -1615,6 +2024,28 @@ Examples:
     )
     args = parser.parse_args()
 
+    if args.add_key is not None:
+        try:
+            configured = set_openai_api_key(args.add_key or None)
+            print(_color("✅ OpenAI API key saved:", Fore.GREEN) + f" {_mask_secret(configured)}")
+            print("   Stored in .env and loaded into current session.")
+        except ValueError as exc:
+            print(_color(f"error: {exc}", Fore.RED))
+            return 1
+        except Exception as exc:
+            print(_color(f"error: failed to update API key ({exc})", Fore.RED))
+            return 1
+        if not args.prompt:
+            return 0
+
+    if args.doctor:
+        return run_doctor()
+
+    if not args.prompt:
+        parser.print_usage()
+        print("error: --prompt is required unless using --addKey or --doctor")
+        return 2
+
     idle_timeout = args.idle_timeout if args.idle_timeout is not None else IDLE_TIMEOUT_S
     if idle_timeout < 0:
         idle_timeout = 0
@@ -1626,11 +2057,14 @@ Examples:
         show_banner=not args.no_banner,
         jsonl_path=args.jsonl_path,
         verbosity=args.verbosity,
+        loop_mode=args.loop_mode,
     )
 
     if policy.show_banner:
         print_banner()
     print(_color("🎯 Objective:", Fore.CYAN) + f" {args.prompt}")
+    print(_color("🤖 Model:", Fore.CYAN) + f" {OPENAI_MODEL}")
+    print(_color("⚙️ Loop mode:", Fore.CYAN) + f" {args.loop_mode}")
     if policy.dry_run:
         print(_color("🧪 DRY-RUN MODE – commands will not execute", DIM))
 
@@ -1676,6 +2110,7 @@ Examples:
         exit_on_first_finding=args.exit_on_first_finding,
         report_out_path=report_out_path,
         validate=not args.no_validate,
+        loop_mode=args.loop_mode,
         event_callback=event_printer,
     )
     return 0

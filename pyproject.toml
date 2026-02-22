@@ -3,13 +3,13 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "zevionx-cli"
-version = "0.1.0"
-description = "Linux-first CLI and AI-driven pentesting orchestrator for Zevionx"
+name = "uxarion"
+version = "0.1.2"
+description = "Linux-first CLI and AI-driven pentesting orchestrator for Uxarion"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "Proprietary"}
-authors = [{name = "Zevionx", email = "noreply@example.com"}]
+license = "Apache-2.0"
+authors = [{name = "Uxarion", email = "noreply@example.com"}]
 dependencies = [
   "typer>=0.12.3",
   "rich>=13.7.1",
@@ -19,10 +19,18 @@ dependencies = [
   "openai>=1.0.0",
   "requests>=2.31.0",
   "asyncio-mqtt>=0.11.0",
+  "packaging>=24.0",
 ]
 
 [project.urls]
-Homepage = "https://zevionx.com/"
+Homepage = "https://uxarion.com/"
 
 [project.scripts]
-zevionx = "zevionx_cli.main_cli:main"
+uxarion = "uxarion:main"
+
+[tool.setuptools]
+include-package-data = true
+py-modules = ["uxarion", "uxarion_cli"]
+
+[tool.setuptools.packages.find]
+include = ["uxarion_cli*", "suno_app*"]

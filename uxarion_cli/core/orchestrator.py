@@ -15,8 +15,8 @@ def _load_agent_module():
     global _AGENT_MODULE
     if _AGENT_MODULE is not None:
         return _AGENT_MODULE
-    script_path = Path(__file__).resolve().parents[2] / "zevionx_cli.py"
-    module_name = "zevionx_cli_runtime"
+    script_path = Path(__file__).resolve().parents[2] / "uxarion_cli.py"
+    module_name = "uxarion_cli_runtime"
     spec = importlib.util.spec_from_file_location(module_name, script_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Unable to load agent entrypoint from {script_path}")
@@ -34,27 +34,33 @@ class AutonomousOrchestrator:
 
     def __init__(
         self,
-        gemini_api_key: Optional[str] = None,
         model_provider: Optional[str] = None,
         approval_mode: Optional[str] = None,
     ) -> None:
         module = _load_agent_module()
         self._policy_cls = getattr(module, "Policy")
         self._agent_cls = getattr(module, "Agent")
-        self.provider = model_provider or getattr(module, "DEFAULT_PROVIDER", "openai")
+        default_provider = getattr(module, "DEFAULT_PROVIDER", "openai")
+        requested_provider = (model_provider or default_provider).strip().lower()
+        if requested_provider != default_provider:
+            raise ValueError(f"Unsupported provider '{model_provider}'. Only '{default_provider}' is available.")
+        self.provider = default_provider
         self.session_id: Optional[str] = None
         self.objective: Optional[str] = None
         self.scope: Set[str] = set()
         self.allow_tools: Optional[Set[str]] = None
         self.deny_tools: Optional[Set[str]] = None
+        self.loop_mode: str = "direct"
         self._agent = None
         self._stop_requested = False
 
     def switch_provider(self, provider_name: str) -> bool:
-        if provider_name and provider_name != self.provider:
-            self.provider = provider_name
-            return True
-        return False
+        normalized = (provider_name or "").strip().lower()
+        if not normalized:
+            return False
+        if normalized != self.provider:
+            raise ValueError(f"Unsupported provider '{provider_name}'. Only '{self.provider}' is available.")
+        return True
 
     def get_provider_info(self) -> Dict[str, Any]:
         return {"provider": self.provider}
@@ -67,6 +73,7 @@ class AutonomousOrchestrator:
         allow_tools: Optional[Set[str]] = None,
         deny_tools: Optional[Set[str]] = None,
         scope_hosts: Optional[Set[str]] = None,
+        loop_mode: Optional[str] = None,
     ) -> str:
         self.session_id = uuid.uuid4().hex
         self.objective = objective
@@ -75,6 +82,11 @@ class AutonomousOrchestrator:
             self.scope.add(target)
         self.allow_tools = set(allow_tools) if allow_tools else None
         self.deny_tools = set(deny_tools) if deny_tools else None
+        normalizer = getattr(_load_agent_module(), "normalize_loop_mode", None)
+        if callable(normalizer):
+            self.loop_mode = normalizer(loop_mode, default="direct")
+        else:
+            self.loop_mode = (loop_mode or "direct").strip().lower()
         policy = self._policy_cls(show_banner=False)
         self._agent = self._agent_cls(policy=policy, provider=self.provider)
         return self.session_id
@@ -130,6 +142,7 @@ class AutonomousOrchestrator:
             kwargs["allow_tools"] = set(self.allow_tools)
         if self.deny_tools:
             kwargs["deny_tools"] = set(self.deny_tools)
+        kwargs["loop_mode"] = self.loop_mode
         return kwargs
 
 
@@ -138,10 +151,10 @@ _orch_singleton: Optional[AutonomousOrchestrator] = None
 
 def init_orchestrator(provider: Optional[str] = None, approval_mode: Optional[str] = None) -> AutonomousOrchestrator:
     global _orch_singleton
-    if _orch_singleton is None or (provider and _orch_singleton.provider != provider):
+    if provider and provider.strip().lower() != "openai":
+        raise ValueError(f"Unsupported provider '{provider}'. Only 'openai' is available.")
+    if _orch_singleton is None:
         _orch_singleton = AutonomousOrchestrator(model_provider=provider, approval_mode=approval_mode)
-    elif provider:
-        _orch_singleton.provider = provider
     return _orch_singleton
 
 

@@ -1,10 +1,10 @@
-# Zevionx CLI Orchestration Flow
+# Uxarion CLI Orchestration Flow
 
 ## Visual Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Zevionx AI Agent Orchestration                       │
+│                           Uxarion AI Agent Orchestration                       │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │  ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐  │

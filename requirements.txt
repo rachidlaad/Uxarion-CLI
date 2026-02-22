@@ -7,3 +7,4 @@ openai>=1.0.0
 requests>=2.31.0
 asyncio-mqtt>=0.11.0
 colorama>=0.4.6
+packaging>=24.0

@@ -1,17 +1,17 @@
 #!/bin/bash
 # SPDX-License-Identifier: Apache-2.0
 
-# Zevionx CLI Setup Script
+# Uxarion CLI Setup Script
 # This script helps configure the environment and install dependencies
 
 set -e
 
-echo "🛡️  Zevionx CLI Setup"
+echo "🛡️  Uxarion CLI Setup"
 echo "===================="
 
 # Check if we're in the right directory
 if [ ! -f "pyproject.toml" ]; then
-    echo "❌ Error: Please run this script from the Zevionx-CLI directory"
+    echo "❌ Error: Please run this script from the Uxarion-CLI directory"
     exit 1
 fi
 
@@ -30,23 +30,16 @@ echo "⬆️  Upgrading pip..."
 pip install --upgrade pip --quiet
 
 # Install CLI package
-echo "📥 Installing Zevionx CLI..."
+echo "📥 Installing Uxarion CLI..."
 pip install -e . --quiet
 
 # Install optional dependencies
-echo "🔧 Installing optional AI providers..."
-read -p "Install Google Gemini support? (y/N): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    pip install google-generativeai --quiet
-    echo "✅ Gemini support installed"
-fi
-
-read -p "Install OpenAI support? (y/N): " -n 1 -r  
+echo "🔧 Installing optional extras..."
+read -p "Install OpenAI package explicitly? (y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     pip install openai --quiet
-    echo "✅ OpenAI support installed"
+    echo "✅ OpenAI package installed"
 fi
 
 read -p "Install enhanced UI support (prompt_toolkit)? (y/N): " -n 1 -r
@@ -70,21 +63,15 @@ echo
 echo "🎉 Setup completed!"
 echo
 echo "Next steps:"
-echo "1. Edit .env file to add your API keys:"
-echo "   nano .env"
-echo
-echo "2. Activate the virtual environment:"
+echo "1. Activate the virtual environment:"
 echo "   source .venv/bin/activate"
 echo  
-echo "3. Start the CLI:"
-echo "   zevionx"
-echo "   or"
-echo "   zevionx chat -t http://localhost:8080"
+echo "2. Add or replace your OpenAI key:"
+echo "   uxarion --addKey"
 echo
-echo "4. Available commands:"
-echo "   zevionx --help           # Show all commands"
-echo "   zevionx chat            # Interactive chat mode"
-echo "   zevionx menu            # Menu-based experience"
-echo "   zevionx pentest \"objective\" --target https://example.com"
+echo "3. Use one command name for all modes:"
+echo "   uxarion                                   # interactive chat"
+echo "   uxarion --prompt \"quick recon\" --max-commands 3"
+echo "   uxarion --prompt \"quick recon\" --chat-after"
 echo
 echo "🔒 For security testing, make sure you have permission to test your targets!"

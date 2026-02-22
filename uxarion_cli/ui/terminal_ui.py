@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Terminal UI for Zevionx AI Agent
+Terminal UI for Uxarion AI Agent
 Rich-based interface with live event streaming
 """
 import asyncio
@@ -21,12 +21,12 @@ except ImportError:
     RICH_AVAILABLE = False
 
 
-BANNER = """                           Zevionx CLI
+BANNER = """                           Uxarion CLI
 
 I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊
 X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad
 
-Zevionx is an AI pentesting copilot, open-source for the pentesting community.
+Uxarion is an AI pentesting copilot, open-source for the pentesting community.
 Bring your own API key and drive proven CLI tools (sqlmap, gobuster, nikto, nmap)
 through a safe, single-command loop.
 
@@ -254,7 +254,7 @@ Objective: {objective}
         """Update the live layout with current state"""
         # Header
         layout["header"].update(Panel(
-            f"[bold cyan]Zevionx AI Agent[/] - Session: {session_id}",
+            f"[bold cyan]Uxarion AI Agent[/] - Session: {session_id}",
             style="cyan"
         ))
 
@@ -282,7 +282,7 @@ Objective: {objective}
 
         # Footer
         layout["footer"].update(Panel(
-            "[dim]Zevionx AI Pentesting Agent - Streaming live reconnaissance results[/]",
+            "[dim]Uxarion AI Pentesting Agent - Streaming live reconnaissance results[/]",
             style="dim"
         ))
 
@@ -291,7 +291,7 @@ def main():
     """Entry point for terminal UI"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Zevionx Terminal UI")
+    parser = argparse.ArgumentParser(description="Uxarion Terminal UI")
     parser.add_argument("--api", default="http://127.0.0.1:8000", help="API server URL")
     args = parser.parse_args()
 

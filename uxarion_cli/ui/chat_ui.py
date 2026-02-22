@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Interactive terminal chat UI for Zevionx
+Interactive terminal chat UI for Uxarion
 Enhanced with code execution, conversation context, and streaming responses.
 """
 import asyncio
@@ -36,10 +36,10 @@ PROMPT_TOOLKIT_AVAILABLE = False
 
 from ..core.orchestrator import init_orchestrator
 
-try:  # Stay aligned with single-shot default provider
+try:  # Stay aligned with single-shot OpenAI default
     loader = SourceFileLoader(
-        "zevionx_cli_module",
-        str(Path(__file__).resolve().parents[2] / "zevionx_cli.py"),
+        "uxarion_cli_module",
+        str(Path(__file__).resolve().parents[2] / "uxarion_cli.py"),
     )
     legacy_agent = loader.load_module()  # type: ignore[deprecated-attr]
     CHAT_DEFAULT_PROVIDER = getattr(legacy_agent, "DEFAULT_PROVIDER", "openai")
@@ -103,18 +103,21 @@ class ChatUI:
         # Default to no target so scope isn’t unintentionally restricted
         self.target = ""
         self.objective = "Security assessment"
-        self.provider = os.getenv("DEFAULT_PROVIDER", CHAT_DEFAULT_PROVIDER)
+        self.provider = "openai"
         self.enable_advanced = False
-        self.prompt_template = "[grey50]┆[/] [cyan]cmd[/] [grey50]›[/] "
+        self.prompt_template = "[cyan]>[/] "
 
     def _resolve_build_metadata(self) -> tuple[str, str]:
         """Return package version and build identifier."""
-        try:
-            version = metadata.version("zevionx-cli")
-        except metadata.PackageNotFoundError:
-            version = "dev"
+        version = "dev"
+        for dist_name in ("uxarion", "uxarion-cli"):
+            try:
+                version = metadata.version(dist_name)
+                break
+            except metadata.PackageNotFoundError:
+                continue
         build = (
-            os.environ.get("ZEVIONX_BUILD_ID")
+            os.environ.get("UXARION_BUILD_ID")
             or os.environ.get("POWN_BUILD_ID")
             or os.environ.get("GIT_COMMIT")
             or os.environ.get("BUILD_ID")
@@ -137,39 +140,26 @@ class ChatUI:
                 self._process_user_input(user_input)
 
         except KeyboardInterrupt:
-            self.console.print("\n[yellow]👋 Session interrupted. Goodbye![/]")
+            self.console.print("\n[yellow]Session interrupted. Goodbye![/]")
 
     def _show_welcome(self):
         """Render the primary header with branding and mission info."""
-        banner = Text("                         Zevionx CLI\n", style="bold cyan")
-
-        builder = Text(
-            "I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊",
-            style="magenta",
-        )
-
-        contacts = Text(
-            "X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad",
-            style="bright_green",
-        )
+        banner = Text("                         Uxarion CLI\n", style="bold cyan")
 
         mission = Text(
-            "Zevionx is an AI pentesting copilot, open-source for the pentesting community.",
+            "Uxarion is an AI pentesting copilot, open-source for the pentesting community.",
             style="bright_cyan",
         )
         quick_tip = Text(
-            "Tip: press '/' to open quick actions and update API keys.",
+            "Tip: press '/' or run /addkey to update API keys quickly.",
             style="bright_cyan",
         )
         website = Text(
-            "Official site: https://zevionx.com/",
+            "Official site: https://uxarion.com/",
             style="bright_cyan",
         )
 
         self.console.print(banner)
-        self.console.print(builder)
-        self.console.print(contacts)
-        self.console.print()
         self.console.print(mission)
         self.console.print(website)
         self.console.print(quick_tip)
@@ -186,6 +176,11 @@ class ChatUI:
         """Process user input and generate responses"""
         if user_input == "/":
             self._open_quick_actions_menu()
+            return
+
+        if user_input.lower().startswith("/addkey"):
+            self.context.add_user_message("/addkey [hidden]")
+            self._handle_command(user_input)
             return
 
         self.context.add_user_message(user_input)
@@ -229,6 +224,8 @@ class ChatUI:
                 self._change_directory(args)
             else:
                 self.console.print("[red]Usage: /cd <directory>[/]")
+        elif cmd == "/addkey":
+            self._handle_addkey_command(args)
         else:
             self.console.print(f"[red]Unknown command: {cmd}[/]")
             self.console.print("[dim]Type /help for available commands[/]")
@@ -238,38 +235,31 @@ class ChatUI:
         cleaned = message.strip()
         if not cleaned:
             return
-        self.console.print(f"\n[bright_white]→ Objective:[/] {cleaned}")
         try:
-            report = asyncio.run(self._run_agent_session(cleaned))
-            if report:
-                self.console.print(
-                    Panel(
-                        report,
-                        border_style="green",
-                        title="🧾 Final Report",
-                        padding=(1, 2),
-                    )
-                )
-                self.context.add_assistant_message(report)
+            reply = asyncio.run(self._run_agent_session(cleaned))
+            if reply:
+                self.console.print(Panel(reply, border_style="green", title="Reply", padding=(1, 2)))
+                self.context.add_assistant_message(reply)
             else:
-                self.context.add_assistant_message("Session completed without report output.")
+                self.context.add_assistant_message("No reply generated.")
         except KeyboardInterrupt:
-            self.console.print("[yellow]⚠ Session interrupted by user[/]")
+            self.console.print("[yellow]Session interrupted by user[/]")
         except Exception as exc:
-            self.console.print(f"[red]❌ Session failed: {exc}[/]")
+            self.console.print(f"[red]Session failed: {exc}[/]")
             cause = exc.__cause__
             if cause and str(cause):
                 self.console.print(f"[dim]Reason: {cause}[/dim]")
             self.context.add_assistant_message(f"Session error: {exc}")
 
     async def _run_agent_session(self, objective: str) -> Optional[str]:
-        orchestrator = init_orchestrator(provider=self.provider)
+        orchestrator = init_orchestrator(provider="openai")
         target = self._normalized_target()
         allow_tools = {"sqlmap", "nmap", "gobuster", "nikto"} if self.enable_advanced else None
         session_id = orchestrator.create_session(
             objective,
             target,
             allow_tools=allow_tools,
+            loop_mode="direct",
         )
         final_report: Optional[str] = None
         spinner_index = 0
@@ -330,21 +320,14 @@ class ChatUI:
     def _format_event_for_display(self, event: Dict[str, Any]) -> tuple[Optional[Any], Optional[str]]:
         etype = event.get("type")
         if etype == "status":
-            return f"[grey62]{event.get('message', '')}[/]", None
+            return None, None
         if etype == "intent":
-            intent = event.get("intent", "")
-            targets = ", ".join(event.get("derived_targets", []) or [])
-            lines = [
-                f"[bright_magenta]🎯 Intent:[/] {intent}",
-            ]
-            if targets:
-                lines.append(f"[bright_magenta]🎯 Targets:[/] {targets}")
-            return lines, None
+            return None, None
         if etype == "decision":
             command = event.get("command", "")
             reason = event.get("reason", "")
             return [
-                f"[bright_cyan]→ Command:[/] {command}",
+                f"[bright_cyan]Command:[/] {command}",
                 f"[grey58]   {reason}[/]" if reason else "",
             ], None
         if etype == "output":
@@ -357,7 +340,7 @@ class ChatUI:
             validator = event.get("validator", {})
             detail = validator.get("tool") or ""
             return [
-                f"[red]✗ Rejected[/]: {event.get('command', '')}",
+                f"[red]Rejected[/]: {event.get('command', '')}",
                 f"[red]   Reason:[/] {reason}",
                 f"[red]   Detail:[/] {detail}" if detail else "",
             ], None
@@ -373,7 +356,7 @@ class ChatUI:
             snippet = (obs.get("output", "") or "").splitlines()
             display = snippet[0][:120] if snippet else ""
             lines = [
-                f"[green]✓ Executed[/]: {command}",
+                f"[green]Executed[/]: {command}",
                 f"[grey58]   rc={rc} duration={duration}[/]" if duration else f"[grey58]   rc={rc}[/]",
             ]
             if display:
@@ -382,10 +365,9 @@ class ChatUI:
                 lines.append(f"[yellow]   Evidence:[/] {', '.join(obs['evidence'])}")
             return lines, None
         if etype == "report":
-            return ["[magenta]📄 Final report generated[/]"], event.get("report")
+            return None, event.get("report")
         if etype == "completed":
-            reason = event.get("result", {}).get("stop_reason") or event.get("stop_reason", "")
-            return [f"[bright_white]Session completed[/] ({reason})"], None
+            return None, None
         if etype == "error":
             return [f"[red]Error:[/] {event.get('error', 'unknown error')}"], None
         return None, None
@@ -425,15 +407,15 @@ class ChatUI:
             if result.returncode != 0:
                 self.console.print(f"[red]Exit code: {result.returncode}[/]")
             else:
-                self.console.print("[green]✓ Command completed successfully[/]")
+                self.console.print("[green]Command completed successfully[/]")
 
             # Add to context
             self.context.add_command_execution(command, result.stdout + result.stderr, result.returncode)
 
         except subprocess.TimeoutExpired:
-            self.console.print("[red]⏰ Command timed out (30s limit)[/]")
+            self.console.print("[red]Command timed out (30s limit)[/]")
         except Exception as e:
-            self.console.print(f"[red]❌ Error executing command: {e}[/]")
+            self.console.print(f"[red]Error executing command: {e}[/]")
 
     def _show_help(self):
         """Show help information"""
@@ -455,6 +437,7 @@ class ChatUI:
         help_table.add_row("/pwd", "Show current directory")
         help_table.add_row("/ls", "List files in current directory")
         help_table.add_row("/cd <dir>", "Change directory")
+        help_table.add_row("/addkey [sk-...]", "Add or replace OpenAI API key")
         help_table.add_row("/quit", "Exit the program")
 
         self.console.print(help_table)
@@ -462,17 +445,15 @@ class ChatUI:
     def _show_settings(self):
         """Show current settings"""
         settings = Text()
-        settings.append("🎯 Target: ", style="bright_cyan")
+        settings.append("Target: ", style="bright_cyan")
         settings.append(f"{self.target}\n", style="white")
-        settings.append("📋 Objective: ", style="bright_cyan")
-        settings.append(f"{self.objective}\n", style="white")
-        settings.append("🤖 Provider: ", style="bright_cyan")
-        settings.append(f"{self.provider}\n", style="white")
-        settings.append("⚔️ Advanced Tools: ", style="bright_cyan")
+        settings.append("Model: ", style="bright_cyan")
+        settings.append("gpt-5.2\n", style="white")
+        settings.append("Advanced Tools: ", style="bright_cyan")
         settings.append("Enabled\n" if self.enable_advanced else "Disabled\n", style="white")
-        settings.append("📁 Working Directory: ", style="bright_cyan")
+        settings.append("Working Directory: ", style="bright_cyan")
         settings.append(f"{self.current_directory}\n", style="white")
-        settings.append("💬 Messages in Context: ", style="bright_cyan")
+        settings.append("Messages in Context: ", style="bright_cyan")
         settings.append(str(len(self.context.messages)), style="white")
 
         self.console.print(
@@ -527,20 +508,18 @@ class ChatUI:
 
     def _start_pentest(self):
         """Start penetration testing"""
-        self.console.print(f"\n[bold green]🚀 Starting AI-driven penetration test...[/]")
-        self.console.print(f"[cyan]Target:[/] {self.target}")
-        self.console.print(f"[cyan]Objective:[/] {self.objective}")
+        self.console.print("\n[bold green]Starting AI-driven session...[/]")
         try:
-            report = asyncio.run(self._run_agent_session(self.objective))
-            if report:
+            reply = asyncio.run(self._run_agent_session(self.objective))
+            if reply:
                 self.console.print(
-                    Panel(report, border_style="green", title="🧾 Final Report", padding=(1, 2))
+                    Panel(reply, border_style="green", title="Reply", padding=(1, 2))
                 )
-                self.context.add_assistant_message(report)
+                self.context.add_assistant_message(reply)
             else:
-                self.context.add_assistant_message("Pentest cycle completed without report output.")
+                self.context.add_assistant_message("Session completed without a reply.")
         except Exception as exc:
-            self.console.print(f"[red]❌ Pentest failed: {exc}[/]")
+            self.console.print(f"[red]Session failed: {exc}[/]")
 
     def _show_goodbye(self):
         """Show goodbye message"""
@@ -549,11 +528,11 @@ class ChatUI:
         goodbye_text = f"""
 [bold green]Session Summary[/]
 
-💬 **Messages exchanged:** {len(self.context.messages)}
-⚡ **Commands executed:** {len(self.context.command_history)}
-⏱️ **Session duration:** {str(session_duration).split('.')[0]}
+**Messages exchanged:** {len(self.context.messages)}
+**Commands executed:** {len(self.context.command_history)}
+**Session duration:** {str(session_duration).split('.')[0]}
 
-[dim]Thank you for using Zevionx! Stay secure! 🛡️[/]
+[dim]Thank you for using Uxarion.[/]
 """
         self.console.print(Panel(goodbye_text, title="Goodbye", border_style="green"))
 
@@ -575,11 +554,9 @@ class ChatUI:
 
     def _open_quick_actions_menu(self) -> None:
         self.console.print("\n[cyan]Quick Actions[/]")
-        self.console.print("  1) Set OpenAI API key")
-        self.console.print("  2) Set Gemini API key")
-        self.console.print("  3) Switch provider to OpenAI (gpt-5)")
-        self.console.print("  4) Switch provider to Gemini")
-        self.console.print("  5) Cancel")
+        self.console.print("  1) Add/replace OpenAI API key")
+        self.console.print("  2) Use OpenAI provider")
+        self.console.print("  3) Cancel")
         choice = self.console.input("Select option: ").strip()
 
         if choice == "1":
@@ -587,38 +564,37 @@ class ChatUI:
             if key:
                 self._apply_api_key("OPENAI_API_KEY", "OpenAI", key)
         elif choice == "2":
-            key = self._prompt_for_key("Gemini")
-            if key:
-                self._apply_api_key("GEMINI_API_KEY", "Gemini", key)
-        elif choice == "3":
             self.provider = "openai"
-            self.console.print("[green]Provider switched to OpenAI (gpt-5).[/]")
-        elif choice == "4":
-            self.provider = "gemini"
-            self.console.print("[green]Provider switched to Gemini.[/]")
+            self.console.print("[green]Provider set to OpenAI (gpt-5.2).[/]")
         else:
             self.console.print("[dim]Menu cancelled.[/]")
 
+    def _handle_addkey_command(self, args: str) -> None:
+        inline_value = (args or "").strip()
+        key = inline_value if inline_value else self._prompt_for_key("OpenAI")
+        if not key:
+            self.console.print("[yellow]No key entered. Nothing changed.[/]")
+            return
+        self._apply_api_key("OPENAI_API_KEY", "OpenAI", key)
+
     def _prompt_for_key(self, label: str) -> Optional[str]:
         try:
-            return getpass.getpass(f"Enter new {label} API key: ")
+            return getpass.getpass(f"Enter new {label} API key: ").strip()
         except Exception:
-            return self.console.input(f"Enter new {label} API key: ")
+            return self.console.input(f"Enter new {label} API key: ").strip()
 
     def _apply_api_key(self, env_var: str, label: str, value: str) -> None:
         os.environ[env_var] = value
         self._update_env_file(env_var, value)
         try:
             module_loader = SourceFileLoader(
-                "zevionx_cli_module",
-                str(Path(__file__).resolve().parents[2] / "zevionx_cli.py"),
+                "uxarion_cli_module",
+                str(Path(__file__).resolve().parents[2] / "uxarion_cli.py"),
             )
             agent_module = module_loader.load_module()  # type: ignore[deprecated-attr]
 
             if env_var == "OPENAI_API_KEY":
                 agent_module.openai_client = None
-            elif env_var == "GEMINI_API_KEY":
-                agent_module.gemini_api_key = None
         except Exception:
             pass
         self.console.print(f"[green]{label} API key updated.[/]")

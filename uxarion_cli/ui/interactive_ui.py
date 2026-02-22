@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Interactive Terminal UI for Zevionx
+Interactive Terminal UI for Uxarion
 Simplified Rich-based interface that works standalone
 """
 import sys
@@ -32,7 +32,6 @@ class InteractiveUI:
         self.console = Console()
         self.target = "127.0.0.1"
         self.objective = "Map open ports and services"
-        self.provider = "gemini"
         self.enable_advanced = False
 
     def run(self):
@@ -46,17 +45,17 @@ class InteractiveUI:
             sys.exit(0)
 
     def _get_banner(self) -> str:
-        """Return the Zevionx banner"""
-        return """                           Zevionx CLI
+        """Return the Uxarion banner"""
+        return """                           Uxarion CLI
 
 I would be happy for you to connect, collaborate, fix a bug or add a feature to the tool 😊
 X.com > @Rachid_LLLL    Gmail > rachidshade@gmail.com    GitHub > https://github.com/rachidlaad
 
-Zevionx is an AI pentesting copilot, open-source for the pentesting community.
+Uxarion is an AI pentesting copilot, open-source for the pentesting community.
 Bring your own API key and drive proven CLI tools (sqlmap, gobuster, nikto, nmap)
 through a safe, single-command loop.
 
-🤖 Now powered by Google Gemini for superior autonomous decision making (GPT-5 ready when billing is fixed)
+🤖 Powered by OpenAI GPT-5.2 for autonomous decision making
 ⚠️  AUTHORIZED USE ONLY - Test only systems you own or have permission to test
 🛡️  Enhanced with enterprise-grade safety controls and command validation
 
@@ -81,10 +80,8 @@ through a safe, single-command loop.
                 elif command in {"3"}:
                     self._toggle_advanced_tools()
                 elif command in {"4"}:
-                    self._set_provider()
-                elif command in {"5", "/start"}:
                     self._start_pentest()
-                elif command in {"6"}:
+                elif command in {"5"}:
                     break
                 elif command:
                     # Treat as new objective and run immediately
@@ -101,16 +98,15 @@ through a safe, single-command loop.
     def _show_menu(self):
         """Show interactive menu"""
         # Create a table for better formatting
-        table = Table(title="[bold cyan]Zevionx Menu Options[/]", show_header=False)
+        table = Table(title="[bold cyan]Uxarion Menu Options[/]", show_header=False)
         table.add_column("Option", style="bold yellow")
         table.add_column("Description", style="white")
 
         table.add_row("1", "Set target")
         table.add_row("2", "Set objective")
         table.add_row("3", f"Toggle advanced tools [{'ON' if self.enable_advanced else 'OFF'}]")
-        table.add_row("4", "Set AI provider")
-        table.add_row("5", "Start penetration test")
-        table.add_row("6", "Quit")
+        table.add_row("4", "Start penetration test")
+        table.add_row("5", "Quit")
 
         self.console.print(table)
 
@@ -119,7 +115,7 @@ through a safe, single-command loop.
             f"[bold yellow]Current Settings:[/]\n"
             f"[cyan]Target:[/] {self.target}\n"
             f"[cyan]Objective:[/] {self.objective}\n"
-            f"[cyan]Provider:[/] {self.provider}\n"
+            f"[cyan]Model:[/] gpt-5.2\n"
             f"[cyan]Advanced Tools:[/] {'Enabled' if self.enable_advanced else 'Disabled'}",
             title="Settings",
             border_style="green"
@@ -146,29 +142,18 @@ through a safe, single-command loop.
         status = "enabled" if self.enable_advanced else "disabled"
         self.console.print(f"[bold green]✓ Advanced tools {status}[/]")
 
-    def _set_provider(self):
-        """Set AI provider"""
-        new_provider = Prompt.ask(
-            "[cyan]Select AI provider[/]",
-            choices=["gemini", "openai"],
-            default=self.provider
-        )
-        if new_provider:
-            self.provider = new_provider
-            self.console.print(f"[bold green]✓ Provider set:[/] {self.provider}")
-
     def _start_pentest(self):
         """Start the penetration test"""
         self.console.print(f"\n[bold green]🚀 Starting AI-driven penetration test...[/]")
         self.console.print(f"[cyan]Target:[/] {self.target}")
         self.console.print(f"[cyan]Objective:[/] {self.objective}")
-        self.console.print(f"[cyan]Provider:[/] {self.provider}")
+        self.console.print("[cyan]Model:[/] gpt-5.2")
 
         if self.enable_advanced:
             self.console.print("[yellow]⚔️  Advanced tools enabled (SQLMap, Nmap, Gobuster, Nikto)[/]")
 
         # Build command to execute the original CLI
-        agent_script = Path(__file__).resolve().parents[2] / "zevionx_cli.py"
+        agent_script = Path(__file__).resolve().parents[2] / "uxarion_cli.py"
         if not agent_script.exists():
             raise FileNotFoundError(f"Agent entrypoint not found at {agent_script}")
 
@@ -177,8 +162,6 @@ through a safe, single-command loop.
             str(agent_script),
             "--prompt",
             self.objective,
-            "--provider",
-            self.provider,
         ]
 
         # Add target

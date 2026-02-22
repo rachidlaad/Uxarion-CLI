@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-UI components for Zevionx CLI
+UI components for Uxarion CLI
 """
 
 from .interactive_ui import InteractiveUI

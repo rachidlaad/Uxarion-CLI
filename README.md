@@ -1,220 +1,106 @@
-# Zevionx CLI – AI Pentesting Copilot
+# Uxarion CLI
 
-Official site: https://zevionx.com/
+Official site: https://uxarion.com/
 
-AI-assisted penetration testing for security researchers, red-teamers, and defenders. Zevionx CLI blends an autonomous command-loop agent with a rich terminal chat experience so you can plan, execute, and report findings faster on scoped targets.
+AI pentesting CLI assistant for authorized security testing.
 
-> **Authorized Testing Only**  
-> Use this toolkit exclusively on systems you own or have written permission to assess. The maintainers assume no responsibility for misuse.
+> **Authorized testing only**  
+> Use only on systems you own or have explicit written permission to test.
 
-![Zevionx CLI chat interface](./image.png)
+## Install (choose your user type)
 
----
+### 1) Ubuntu/Kali root user (recommended for your current setup)
 
-## Why Zevionx?
-
-- **Autonomous AI Operator** – The single-shot agent (`zevionx.py`) plans reconnaissance, validates commands, captures evidence, and writes a concise report.
-- **Terminal Chat UI** – Rich-powered chat interface with streaming updates, context memory, a persistent “Running…” indicator, and quick actions for updating API keys on the fly.
-- **Built-In Training Target** – The intentionally vulnerable **Suno** banking demo (Flask) lets you practice JWT tampering, SSRF, command injection, and file disclosure scenarios offline.
-- **Safety Guardrails** – Command validator enforces allow-lists, scope restrictions, duplicate avoidance, and blocks destructive patterns.
-- **Friendly Builder** – Crafted by Rachid Laadraoui. Connect & collaborate: `X.com/@Rachid_LLLL`, `rachidshade@gmail.com`, `github.com/rachidlaad`.
-
----
-
-## Table of Contents
-
-1. [Prerequisites](#prerequisites)
-2. [Quick Start](#quick-start)
-3. [Configuring API Providers](#configuring-api-providers)
-4. [Running the Agents](#running-the-agents)
-   - [Terminal Chat UI](#terminal-chat-ui)
-   - [Autonomous Single-Shot Agent](#autonomous-single-shot-agent)
-5. [Practice Target: Suno Banking App](#practice-target-suno-banking-app)
-6. [Outputs & Artifacts](#outputs--artifacts)
-7. [Project Structure](#project-structure)
-8. [Troubleshooting](#troubleshooting)
-9. [Roadmap & Known Gaps](#roadmap--known-gaps)
-10. [Community & Support](#community--support)
-
----
-
-## Prerequisites
-
-- **Operating System**: Linux or WSL2 on Windows (Rich UI recommended in a true terminal).
-- **Python**: 3.11 or newer.
-- **Optional AI keys**:
-  - OpenAI API key (for GPT-4o / GPT-5 variants).
-  - Google Gemini API key (gemini-1.5-flash or better).
-- **Optional packages**:  
-  `pip install google-generativeai openai prompt_toolkit` to unlock all provider and UI extras.
-
----
-
-## Quick Start
+This is the exact flow that worked in your Ubuntu session:
 
 ```bash
-git clone https://github.com/rachidlaad/Zevionx-CLI.git
-cd Zevionx-CLI
-
-# 1) create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 2) install runtime dependencies
-pip install -r requirements.txt
-
-# (optional) install in editable mode for development
-pip install -e .
-
-# (optional) guided setup with provider extras
-./setup.sh
-
-# (optional) SSE/web UI dependencies
-pip install fastapi aioredis
-
-# (optional) enhanced terminal input
-pip install prompt_toolkit
-
-# (optional) vulnerable Suno target
-pip install -r requirements-suno.txt
+apt update
+apt install -y pipx
+pipx ensurepath
+export PATH="$PATH:/root/.local/bin"
+pipx install uxarion
+uxarion --doctor
 ```
 
-> The tree includes a `.gitignore` so virtualenvs, logs, and `.env` stay local—keep your real API keys out of source control.
+If pipx shows this warning:
+`File exists at /root/.local/bin/uxarion ... symlink missing or pointing to unexpected location`
 
-Optional extras:
-- `fastapi` + `aioredis` enable the experimental SSE API in `zevionx_cli/ui/sse_api.py`.
-- `prompt_toolkit` adds enhanced line-editing inside the chat UI.
-- `requirements-suno.txt` installs the vulnerable Suno target for local practice.
-
----
-
-## Configuring API Providers
-
-You can supply keys in two ways:
-
-1. **Interactive Quick Actions**  
-   Launch the terminal chat UI (`python3 zevionx.py`) and press `/` → `1` or `/` → `2` to enter OpenAI or Gemini keys. The UI updates your environment and `.env`.
-
-2. **Manual `.env` update**  
-   Create `.env` at the project root (or edit the existing file) and add:
-   ```dotenv
-   OPENAI_API_KEY=sk-...
-   GEMINI_API_KEY=AIza...
-   ```
-   Reactivate your virtualenv or restart the CLI so changes take effect.
-
-If no provider key is present, the agent will stop with a clear “API key not configured” error before any commands run.
-
----
-
-## Running the Agents
-
-### Terminal Chat UI
+run:
 
 ```bash
-# interactive chat UI with spinner, command history, and quick actions
-python3 zevionx.py
+rm -f /root/.local/bin/uxarion
+pipx reinstall uxarion
 ```
 
-**Workflow highlights**
-- Type free-form objectives to launch autonomous runs.
-- Use `/help`, `/settings`, `/exec <cmd>`, `/clear`, `/context`, `/pentest`.
-- The “Running…” spinner remains visible until the session finishes; command events print beneath it.
-- Evidence and reports stream into the terminal; the final report is also saved to disk (see [Outputs](#outputs--artifacts)).
-
-### Autonomous Single-Shot Agent
+### 2) Ubuntu/Kali normal user (non-root)
 
 ```bash
-# single-shot agent (auto wraps bare objective into --prompt)
-python3 zevionx.py "Assess http://127.0.0.1:5000/api/diagnostics/ping for command injection and other exposures" \
-  --provider openai \
-  --max-commands 1
+sudo apt update
+sudo apt install -y pipx
+pipx ensurepath
+pipx install uxarion
+uxarion --doctor
 ```
 
-Flags mirror the options in `zevionx_cli.py`:
-- `--provider` (`openai` | `gemini`)
-- `--max-commands` safeguard
-
-## Practice Target: Suno Banking App
-
-Suno is a deliberately vulnerable Flask application that mirrors common web flaws without relying on SQL injection.
+If `uxarion` is not found, open a new shell or run:
 
 ```bash
-pip install -r requirements-suno.txt
-python -m suno_app.app
-# Suno runs at http://127.0.0.1:5000 by default
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Intentional weaknesses:
-- JWT role escalation (`/auth/login` & `/dashboard`)
-- Command injection (`/api/diagnostics/ping`)
-- SSRF (`/api/preview`)
-- Path traversal (`/files/download`)
+### 3) Python virtualenv user
 
-See [`README_SUNO.md`](README_SUNO.md) for walkthrough goals. Point the agent at `http://127.0.0.1:5000` for an end-to-end practice run.
-
----
-
-## Outputs & Artifacts
-
-- **Run reports**: stored in `.zevionx_runs/<run_id>/report.md` plus a session `run_result.json`. If you prefer to keep the working tree clean, delete or move these after review.
-- **Evidence snippets**: extracted lines attached to each observation to speed up report authoring.
-- **Console transcript**: use `zevionx_chat.log` if you capture terminal output (ignored by git).
-
----
-
-## Project Structure
-
-```
-├── zevionx.py                  # Unified entry point (auto adds --prompt)
-├── zevionx_cli.py              # Single-shot autonomous agent & CLI
-├── zevionx_cli/                # Package (chat UI, orchestrator shim, helpers)
-│   ├── core/orchestrator.py    # Bridges CLI orchestrator to single-shot agent
-│   ├── ui/chat_ui.py          # Rich chat interface with spinner + quick actions
-│   ├── ui/interactive_ui.py    # Menu-driven UI
-│   ├── ui/sse_api.py           # SSE API stubs (requires optional components)
-│   └── tools/                  # Safety / sandbox helpers (minimal in this fork)
-├── requirements.txt            # Dependency list for quick installs
-├── suno_app/                   # Vulnerable banking demo target
-├── README.md                   # (you are here)
-├── README_SUNO.md              # Suno target details
-└── orchestration_flow.md       # Legacy architecture notes
+```bash
+python3 -m venv ~/.venvs/uxarion
+source ~/.venvs/uxarion/bin/activate
+python -m pip install -U pip
+python -m pip install -U uxarion
+uxarion --doctor
 ```
 
----
+### 4) From source (developers)
 
-## Troubleshooting
+```bash
+git clone https://github.com/rachidlaad/Uxarion-CLI.git
+cd Uxarion-CLI
+./install.sh
+uxarion --doctor
+```
 
-| Symptom | Likely Cause | Fix |
-|---------|--------------|-----|
-| `RuntimeError: OPENAI_API_KEY not configured` | Missing provider key | Set key via quick actions or `.env` |
-| `openai.RateLimitError (429)` | Account out of quota | Add billing credits or switch provider (`--provider gemini`) |
-| Spinner disappears instantly | **Fixed** in latest release – update to ensure spinner persists until completion |
-| Commands rejected with `out-of-scope host(s)` | Scope validator parsing host from URL/headers | Add `--scope` flag, adjust objective, or remove out-of-scope headers |
-| No output from Suno endpoints | Target app not running | Start `python -m suno_app.app` and ensure port matches your scope |
+## First run
 
----
+```bash
+uxarion --addKey
+uxarion
+```
 
-## Roadmap & Known Gaps
+Direct one-shot run:
 
-- REST/SSE orchestration server and graph memory backends are currently stubbed. Contributions welcome if you want to revive the full distributed orchestration pipeline.
-- Secure sandbox module enforces validations but does not containerize tools. Integrate Docker or remote sandboxes for untrusted targets.
-- More reporting templates (PDF/HTML) and remediation guidance are planned.
-- Additional practice targets (beyond Suno) are in development.
+```bash
+uxarion --prompt "safe passive recon on https://example.com" --max-commands 3
+```
 
----
+## Update
 
-## Community & Support
+- pipx installs:
+  `pipx upgrade uxarion`
+- venv installs:
+  `python -m pip install -U uxarion`
 
-- Builder: Rachid Laadraoui  
-  X/Twitter: [@Rachid_LLLL](https://x.com/Rachid_LLLL)  
-  Email: [rachidshade@gmail.com](mailto:rachidshade@gmail.com)  
-  GitHub: [github.com/rachidlaad](https://github.com/rachidlaad)
-- Have feedback or want to collaborate? Open an issue, share ideas, or reach out directly. Bug fixes, new features, and target scenarios are all welcome.
-- If Zevionx CLI helps your security workflow, star the repo so more researchers and defenders can discover this AI pentesting copilot.
+Uxarion also checks PyPI for updates at startup (cached for 24h) and prints a one-line upgrade hint.  
+Disable this check with:
 
-Stay safe and stay ethical.
+```bash
+export UXARION_DISABLE_UPDATE_CHECK=1
+```
+
+## Common install issue (Ubuntu/Kali)
+
+If you get:
+`error: externally-managed-environment`
+
+Do not install into system Python with plain `pip`. Use `pipx` or a virtualenv (shown above).
 
 ## License
 
-Zevionx CLI is licensed under the Apache License 2.0. See [LICENSE](./LICENSE).
+Apache-2.0 (`LICENSE`).
